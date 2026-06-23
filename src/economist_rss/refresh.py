@@ -27,7 +27,16 @@ class RefreshSummary:
 
 
 def refresh_if_stale(config: AppConfig, *, force: bool = False) -> RefreshSummary:
-    with _refresh_lock(config.database_path):
+    with _refresh_lock(config.database_path) as lock_acquired:
+        if not lock_acquired:
+            return RefreshSummary(
+                status="skipped",
+                feeds_checked=0,
+                feed_items_seen=0,
+                articles_fetched=0,
+                articles_failed=0,
+                skipped_reason="refresh_already_running",
+            )
         with ArticleStore(config.database_path) as store:
             if not force and not _is_stale(store, config.refresh_interval_seconds):
                 return RefreshSummary(
@@ -167,13 +176,20 @@ def _refresh_lock(database_path: str):
         try:
             import fcntl
         except ImportError:
-            yield
+            yield True
             return
+        locked = False
         try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            yield
-        finally:
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield False
+                return
+            locked = True
+            yield True
+        finally:
+            if locked:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
