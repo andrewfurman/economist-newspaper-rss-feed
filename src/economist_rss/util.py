@@ -29,6 +29,19 @@ def parse_datetime(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def cutoff_datetime(lookback_days: int | None) -> datetime | None:
+    if not lookback_days:
+        return None
+    from datetime import timedelta
+
+    return datetime.now(timezone.utc) - timedelta(days=lookback_days)
+
+
+def normalized_datetime(value: str | None) -> str | None:
+    parsed = parse_datetime(value)
+    return parsed.isoformat() if parsed else None
+
+
 def canonical_url(value: str) -> str:
     raw = (value or "").strip()
     if not raw:

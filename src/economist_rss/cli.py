@@ -12,6 +12,7 @@ from .feed import build_rss
 from .refresh import refresh_if_stale
 from .server import EconomistRssServer
 from .store import ArticleStore
+from .util import cutoff_datetime
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,7 +72,10 @@ def main(argv: list[str] | None = None) -> int:
         _print_summary(summary)
 
     with ArticleStore(config.database_path) as store:
-        items = store.feed_items(limit=args.output_limit)
+        items = store.feed_items(
+            limit=args.output_limit,
+            published_after=cutoff_datetime(config.article_lookback_days),
+        )
 
     if not items:
         print("No full-text feed items are cached yet.", file=sys.stderr)
@@ -186,6 +190,7 @@ def _with_cli_feeds(config: AppConfig, feed_urls: list[str], limit: int | None) 
         database_path=config.database_path,
         timeout_seconds=config.timeout_seconds,
         refresh_interval_seconds=config.refresh_interval_seconds,
+        article_lookback_days=config.article_lookback_days,
         min_article_delay_seconds=config.min_article_delay_seconds,
         max_article_delay_seconds=config.max_article_delay_seconds,
         max_articles_per_refresh=config.max_articles_per_refresh,
@@ -217,6 +222,7 @@ def _with_browser_overrides(
         database_path=config.database_path,
         timeout_seconds=config.timeout_seconds,
         refresh_interval_seconds=config.refresh_interval_seconds,
+        article_lookback_days=config.article_lookback_days,
         min_article_delay_seconds=config.min_article_delay_seconds,
         max_article_delay_seconds=config.max_article_delay_seconds,
         max_articles_per_refresh=config.max_articles_per_refresh,

@@ -30,6 +30,7 @@ Use these defaults in production:
 
 ```toml
 refresh_interval_seconds = 3600
+article_lookback_days = 7
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
 max_articles_per_refresh = 12
@@ -40,6 +41,8 @@ This means:
 
 - RSS readers can poll the private feed often, but upstream Economist refreshes
   happen at most every hour.
+- Discovery is limited to configured RSS items published in the last seven
+  days.
 - New article fetches happen sequentially.
 - A normal refresh takes a slow drip approach instead of a burst.
 - Successfully cached articles are not downloaded again.

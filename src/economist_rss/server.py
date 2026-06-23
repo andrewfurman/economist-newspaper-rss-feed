@@ -9,6 +9,7 @@ from .config import AppConfig
 from .feed import build_rss
 from .refresh import refresh_if_stale
 from .store import ArticleStore
+from .util import cutoff_datetime
 
 
 class EconomistRssServer:
@@ -34,7 +35,13 @@ class EconomistRssServer:
                     with owner.lock:
                         refresh_if_stale(owner.config)
                     with ArticleStore(owner.config.database_path) as store:
-                        rss = build_rss(store.feed_items())
+                        rss = build_rss(
+                            store.feed_items(
+                                published_after=cutoff_datetime(
+                                    owner.config.article_lookback_days
+                                )
+                            )
+                        )
                     self._send_text(rss, content_type="application/rss+xml; charset=utf-8")
                     return
                 self.send_error(404)

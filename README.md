@@ -31,9 +31,10 @@ The service is cache-first.
 5. It writes or serves a normal RSS 2.0 feed with `content:encoded` article
    bodies.
 
-By default, refreshes are limited to once every hour and at most 12 new
-article fetches per refresh. If your RSS reader asks for `/rss.xml` repeatedly
-within that window, it receives the cached feed without touching The Economist.
+By default, refreshes are limited to once every hour, discover articles from the
+last seven days, and fetch at most 12 new article bodies per refresh. If your
+RSS reader asks for `/rss.xml` repeatedly within that window, it receives the
+cached feed without touching The Economist.
 
 ## Files
 
@@ -136,6 +137,7 @@ See [docs/EC2_DEPLOYMENT.md](docs/EC2_DEPLOYMENT.md).
 The defaults intentionally behave like a patient human subscriber:
 
 - one feed refresh every hour
+- latest-feed discovery for articles published in the last seven days
 - one article request at a time
 - randomized 75-180 second delay between article fetches
 - maximum 12 new article downloads per refresh
