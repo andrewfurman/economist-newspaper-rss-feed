@@ -63,6 +63,7 @@ Edit `real.env`:
 ECONOMIST_EMAIL=you@example.com
 ECONOMIST_PASSWORD=your-password
 ECONOMIST_BROWSER_FETCH_ENABLED=true
+ECONOMIST_FEED_TOKEN=long-random-token-for-rss-reader
 ```
 
 Authenticate and save browser state:
@@ -110,8 +111,11 @@ economist-rss serve --env-file real.env --config feeds.toml --host 127.0.0.1 --p
 The feed will be available at:
 
 ```text
-http://127.0.0.1:8080/rss.xml
+http://127.0.0.1:8080/rss.xml?token=long-random-token-for-rss-reader
 ```
+
+When `ECONOMIST_FEED_TOKEN` is set, `GET /rss.xml` requires either
+`?token=...` in the URL or an `Authorization: Bearer ...` header.
 
 ## Refresh Strategy
 
@@ -120,8 +124,8 @@ service.
 
 - Run the HTTP RSS server continuously.
 - Add a systemd timer every two hours to refresh in the background.
-- Keep the RSS endpoint private behind VPN, Tailscale, basic auth, or a private
-  reverse proxy.
+- Keep the RSS endpoint private behind a long random `ECONOMIST_FEED_TOKEN`,
+  VPN, Tailscale, basic auth, or a private reverse proxy.
 - Keep `real.env`, SQLite data, and browser state on the EC2 volume, never in
   GitHub.
 

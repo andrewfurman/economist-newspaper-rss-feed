@@ -3,7 +3,7 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from threading import Lock
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .config import AppConfig
 from .feed import build_rss
@@ -28,6 +28,9 @@ class EconomistRssServer:
                     self._send_text("ok\n", content_type="text/plain")
                     return
                 if parsed.path in {"/", "/rss.xml", "/economist-fulltext.xml"}:
+                    if not _authorized(self.headers.get("Authorization", ""), parsed.query, "ECONOMIST_FEED_TOKEN"):
+                        self.send_error(401)
+                        return
                     with owner.lock:
                         refresh_if_stale(owner.config)
                     with ArticleStore(owner.config.database_path) as store:
@@ -44,7 +47,7 @@ class EconomistRssServer:
                 token = os.environ.get("ECONOMIST_REFRESH_TOKEN", "")
                 if token:
                     auth = self.headers.get("Authorization", "")
-                    if auth != f"Bearer {token}":
+                    if not _authorized(auth, parsed.query, "ECONOMIST_REFRESH_TOKEN"):
                         self.send_error(401)
                         return
                 with owner.lock:
@@ -75,3 +78,13 @@ class EconomistRssServer:
 
         httpd = ThreadingHTTPServer((self.host, self.port), Handler)
         httpd.serve_forever()
+
+
+def _authorized(authorization_header: str, query: str, token_env_key: str) -> bool:
+    expected = os.environ.get(token_env_key, "")
+    if not expected:
+        return True
+    if authorization_header == f"Bearer {expected}":
+        return True
+    tokens = parse_qs(query).get("token", [])
+    return any(token == expected for token in tokens)
