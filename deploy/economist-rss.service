@@ -1,0 +1,17 @@
+[Unit]
+Description=Private Economist full-text RSS server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/economist-newspaper-rss-feed
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/economist-newspaper-rss-feed/.venv/bin/economist-rss serve --env-file /etc/economist-rss/real.env --config /etc/economist-rss/feeds.toml --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

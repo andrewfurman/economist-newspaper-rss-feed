@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "economist-newspaper-rss-feed"
+version = "0.1.0"
+description = "Build a private full-text RSS feed from authorized Economist article fetches."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Andrew Furman" }]
+keywords = ["rss", "economist", "feed"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.46"]
+
+[project.scripts]
+economist-rss = "economist_rss.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

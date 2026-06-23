@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh private Economist full-text RSS cache
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/economist-newspaper-rss-feed
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/economist-newspaper-rss-feed/.venv/bin/economist-rss refresh --force --env-file /etc/economist-rss/real.env --config /etc/economist-rss/feeds.toml
+NoNewPrivileges=true
+PrivateTmp=true
