@@ -248,6 +248,7 @@ def _print_summary(summary: object) -> None:
             f"Refresh {summary.status}: feeds={summary.feeds_checked}, "
             f"items={summary.feed_items_seen}, fetched={summary.articles_fetched}, "
             f"failed={summary.articles_failed}"
+            f"{f', stopped={summary.stop_reason}' if summary.stop_reason else ''}"
         ),
         file=sys.stderr,
     )

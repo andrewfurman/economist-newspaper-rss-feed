@@ -89,11 +89,20 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                     final_url=final_url,
                 )
 
+            http_status = response.status if response else 0
+            if http_status in {403, 429}:
+                return BrowserResult(
+                    ok=False,
+                    status="rate_limited",
+                    message=f"The browser fetch returned HTTP {http_status}.",
+                    url=url,
+                    final_url=final_url,
+                )
+
             article = extract_article(html)
             if article is None or len(article.text) < 700:
                 article = _extract_rendered_article(page)
             if article is None or len(article.text) < 700:
-                http_status = response.status if response else 0
                 return BrowserResult(
                     ok=False,
                     status="excerpt_or_login_required",

@@ -24,6 +24,15 @@ class RefreshSummary:
     articles_fetched: int
     articles_failed: int
     skipped_reason: str = ""
+    stop_reason: str = ""
+
+
+@dataclass(frozen=True)
+class ArticleFetchResult:
+    content: ArticleContent | None = None
+    source: str = ""
+    stop_refresh: bool = False
+    stop_reason: str = ""
 
 
 def refresh_if_stale(config: AppConfig, *, force: bool = False) -> RefreshSummary:
@@ -56,7 +65,9 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
     feed_items_seen = 0
     articles_fetched = 0
     articles_failed = 0
+    stop_reason = ""
     published_after = cutoff_datetime(config.article_lookback_days)
+    store.set_state("last_refresh_stop_reason", "")
 
     for feed_config in config.feeds:
         feeds_checked += 1
@@ -90,19 +101,22 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
 
     for index, article in enumerate(candidates):
         result = _fetch_article(store, article, fetcher, config)
-        if result:
-            content, source = result
+        if result.content:
             store.save_article_content(
                 article,
-                content_html=content.content_html,
-                content_text=content.text,
-                content_source=source,
+                content_html=result.content.content_html,
+                content_text=result.content.text,
+                content_source=result.source,
             )
             articles_fetched += 1
         else:
             articles_failed += 1
+            if result.stop_refresh:
+                stop_reason = result.stop_reason
+                store.set_state("last_refresh_stop_reason", result.stop_reason)
+                break
 
-        if index < len(candidates) - 1:
+        if index < len(candidates) - 1 and not result.stop_refresh:
             _polite_delay(config)
 
     store.set_state("last_refresh_at", now_iso())
@@ -112,6 +126,7 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
         feed_items_seen=feed_items_seen,
         articles_fetched=articles_fetched,
         articles_failed=articles_failed,
+        stop_reason=stop_reason,
     )
 
 
@@ -120,18 +135,36 @@ def _fetch_article(
     article: StoredArticle,
     fetcher: Fetcher,
     config: AppConfig,
-) -> tuple[ArticleContent, str] | None:
+) -> ArticleFetchResult:
     if config.browser_fetch_enabled:
         browser_result = fetch_article_with_browser(article.url, config)
         if browser_result.ok and browser_result.article is not None:
-            return browser_result.article, "economist_browser_fetch"
+            return ArticleFetchResult(
+                content=browser_result.article,
+                source="economist_browser_fetch",
+            )
+        store.mark_fetch_error(
+            article,
+            status=browser_result.status,
+            error=browser_result.message,
+        )
+        return ArticleFetchResult(
+            stop_refresh=_is_refresh_stop_status(browser_result.status),
+            stop_reason=(
+                f"Stopped refresh after browser fetch returned "
+                f"{browser_result.status} for {article.url}"
+            ),
+        )
 
     try:
         response = fetcher.fetch_text(article.url)
     except FetchError as exc:
         status = "rate_limited" if exc.status_code in {403, 429} else "fetch_failed"
         store.mark_fetch_error(article, status=status, error=str(exc))
-        return None
+        return ArticleFetchResult(
+            stop_refresh=status == "rate_limited",
+            stop_reason=f"Stopped refresh after HTTP {exc.status_code} for {article.url}",
+        )
 
     if is_cloudflare_challenge(response.text):
         store.mark_fetch_error(
@@ -139,7 +172,10 @@ def _fetch_article(
             status="cloudflare_challenge",
             error="The article response was a Cloudflare challenge page.",
         )
-        return None
+        return ArticleFetchResult(
+            stop_refresh=True,
+            stop_reason=f"Stopped refresh after Cloudflare challenge for {article.url}",
+        )
 
     content = extract_article(response.text)
     if content is None or len(content.text) < 700:
@@ -148,8 +184,20 @@ def _fetch_article(
             status="excerpt_or_login_required",
             error="The article page did not expose full subscriber text.",
         )
-        return None
-    return content, "http_article_fetch"
+        return ArticleFetchResult(
+            stop_refresh=True,
+            stop_reason=f"Stopped refresh after login/excerpt page for {article.url}",
+        )
+    return ArticleFetchResult(content=content, source="http_article_fetch")
+
+
+def _is_refresh_stop_status(status: str) -> bool:
+    return status in {
+        "blocked_by_cloudflare",
+        "cloudflare_challenge",
+        "excerpt_or_login_required",
+        "rate_limited",
+    }
 
 
 def _is_stale(store: ArticleStore, refresh_interval_seconds: float) -> bool:
