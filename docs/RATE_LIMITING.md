@@ -29,7 +29,7 @@ Relevant references:
 Use these defaults in production:
 
 ```toml
-refresh_interval_seconds = 7200
+refresh_interval_seconds = 3600
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
 max_articles_per_refresh = 12
@@ -39,7 +39,7 @@ retry_failed_after_seconds = 21600
 This means:
 
 - RSS readers can poll the private feed often, but upstream Economist refreshes
-  happen at most every two hours.
+  happen at most every hour.
 - New article fetches happen sequentially.
 - A normal refresh takes a slow drip approach instead of a burst.
 - Successfully cached articles are not downloaded again.
@@ -59,7 +59,7 @@ The server therefore separates reading from refreshing:
 - `GET /rss.xml` also triggers refresh only when the cache is stale.
 - `POST /refresh` can force a refresh when protected by
   `ECONOMIST_REFRESH_TOKEN`.
-- A systemd timer can refresh every two hours independent of reader behavior.
+- A systemd timer can refresh every hour independent of reader behavior.
 
 ## Backoff Behavior
 

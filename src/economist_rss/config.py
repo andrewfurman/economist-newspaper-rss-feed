@@ -26,7 +26,7 @@ class AppConfig:
     output_path: str = "dist/economist-fulltext.xml"
     database_path: str = "data/economist-rss.sqlite3"
     timeout_seconds: float = 20.0
-    refresh_interval_seconds: float = 7200.0
+    refresh_interval_seconds: float = 3600.0
     min_article_delay_seconds: float = 75.0
     max_article_delay_seconds: float = 180.0
     max_articles_per_refresh: int = 12
@@ -69,7 +69,7 @@ def load_config(path: str | Path) -> AppConfig:
         output_path=_string_value(raw, "output_path", "dist/economist-fulltext.xml"),
         database_path=_string_value(raw, "database_path", "data/economist-rss.sqlite3"),
         timeout_seconds=_float_value(raw, "timeout_seconds", 20.0),
-        refresh_interval_seconds=_float_value(raw, "refresh_interval_seconds", 7200.0),
+        refresh_interval_seconds=_float_value(raw, "refresh_interval_seconds", 3600.0),
         min_article_delay_seconds=_float_value(raw, "min_article_delay_seconds", 75.0),
         max_article_delay_seconds=_float_value(raw, "max_article_delay_seconds", 180.0),
         max_articles_per_refresh=_int_value(raw, "max_articles_per_refresh", 12),
