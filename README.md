@@ -31,7 +31,7 @@ The service is cache-first.
 5. It writes or serves a normal RSS 2.0 feed with `content:encoded` article
    bodies.
 
-By default, refreshes are limited to once every two hours and at most 12 new
+By default, refreshes are limited to once every hour and at most 12 new
 article fetches per refresh. If your RSS reader asks for `/rss.xml` repeatedly
 within that window, it receives the cached feed without touching The Economist.
 
@@ -123,7 +123,7 @@ The recommended production model is a separate small EC2 instance just for this
 service.
 
 - Run the HTTP RSS server continuously.
-- Add a systemd timer every two hours to refresh in the background.
+- Add a systemd timer every hour to refresh in the background.
 - Keep the RSS endpoint private behind a long random `ECONOMIST_FEED_TOKEN`,
   VPN, Tailscale, basic auth, or a private reverse proxy.
 - Keep `real.env`, SQLite data, and browser state on the EC2 volume, never in
@@ -135,7 +135,7 @@ See [docs/EC2_DEPLOYMENT.md](docs/EC2_DEPLOYMENT.md).
 
 The defaults intentionally behave like a patient human subscriber:
 
-- one feed refresh every two hours
+- one feed refresh every hour
 - one article request at a time
 - randomized 75-180 second delay between article fetches
 - maximum 12 new article downloads per refresh

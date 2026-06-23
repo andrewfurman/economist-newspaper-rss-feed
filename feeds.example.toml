@@ -1,7 +1,7 @@
 output_path = "dist/economist-fulltext.xml"
 database_path = "data/economist-rss.sqlite3"
 timeout_seconds = 20
-refresh_interval_seconds = 7200
+refresh_interval_seconds = 3600
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
 max_articles_per_refresh = 12
