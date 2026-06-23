@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from economist_rss.extract import extract_article
+from economist_rss.extract import extract_article, is_cloudflare_challenge
 
 
 class ExtractArticleTests(unittest.TestCase):
@@ -69,6 +69,21 @@ class ExtractArticleTests(unittest.TestCase):
         assert article is not None
         self.assertEqual(article.title, "Short page")
         self.assertEqual(article.method, "meta-description")
+
+    def test_cloudflare_detector_ignores_non_challenge_mentions(self):
+        html = """
+        <html>
+          <head><script src="/cdn-cgi/rum/cloudflareinsights.js"></script></head>
+          <body><h1>Normal page</h1></body>
+        </html>
+        """
+
+        self.assertFalse(is_cloudflare_challenge(html))
+
+    def test_cloudflare_detector_matches_human_verification(self):
+        html = "<html><body>Verify you are human before continuing.</body></html>"
+
+        self.assertTrue(is_cloudflare_challenge(html))
 
 
 if __name__ == "__main__":

@@ -46,6 +46,15 @@ class ArticleStoreTests(unittest.TestCase):
                     ),
                     [],
                 )
+                self.assertEqual(
+                    store.pending_articles(
+                        limit=10,
+                        retry_failed_after_seconds=1,
+                        exclude_url_patterns=[],
+                        force=True,
+                    ),
+                    [],
+                )
 
     def test_canonical_url_deduplicates_tracking_params(self):
         with tempfile.TemporaryDirectory() as directory:

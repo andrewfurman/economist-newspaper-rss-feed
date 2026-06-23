@@ -318,5 +318,12 @@ def _word_count(parts: list[str] | tuple[str, ...] | Any) -> int:
 def is_cloudflare_challenge(html: str) -> bool:
     text = html or ""
     return bool(
-        re.search(r"cf-chl|cf_chl|Cloudflare|Enable JavaScript and cookies", text, re.I)
+        re.search(
+            r"cf-chl|cf_chl|__cf_chl|/cdn-cgi/challenge-platform|"
+            r"challenges\.cloudflare\.com|cf-turnstile|cf-browser-verification|"
+            r"verify you are human|checking if the site connection is secure|"
+            r"enable javascript and cookies to continue|just a moment\.\.\.",
+            text,
+            re.I,
+        )
     )
