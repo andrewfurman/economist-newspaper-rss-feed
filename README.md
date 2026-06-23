@@ -82,6 +82,18 @@ Click any Cloudflare `Verify you are human` challenge yourself. The script will
 continue waiting for subscriber full-text access and save the resulting browser
 state when verification succeeds.
 
+If the automatic username/password form fill does not land in a subscribed
+session, use manual login mode:
+
+```bash
+economist-rss auth --env-file real.env --config feeds.toml --headed --manual-login --auth-wait-seconds 900
+```
+
+In the visible browser window, click `Log in`, complete The Economist login,
+clear any Cloudflare challenge yourself, and return to the verification article
+if needed. The script saves the private browser state after it can see full
+subscriber article text.
+
 Refresh the cache and build a feed:
 
 ```bash
@@ -130,6 +142,21 @@ The defaults intentionally behave like a patient human subscriber:
 See [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
 ## Development
+
+## Change Control
+
+All changes to this repository should be merged through GitHub pull requests so
+there is an auditable trail of what changed, why it changed, and how it was
+tested.
+
+- Do not push directly to `main`.
+- Create a branch for each change.
+- Open a pull request with a summary, rationale, and validation notes.
+- Run the relevant tests before merging.
+- Keep credentials, browser state, generated feeds, and SQLite cache files out
+  of every branch and pull request.
+- Merge only after the PR diff has been reviewed for secrets and unintended
+  subscriber-content artifacts.
 
 ```bash
 python -m unittest discover -s tests

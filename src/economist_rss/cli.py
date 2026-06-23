@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.command == "auth":
-        result = authenticate_browser(config)
+        result = authenticate_browser(config, manual_login=args.manual_login)
         print(f"{result.status}: {result.message}", file=sys.stderr)
         return 0 if result.ok else 1
 
@@ -157,6 +157,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="How long auth should wait for subscriber full-text verification.",
+    )
+    parser.add_argument(
+        "--manual-login",
+        action="store_true",
+        help="Open a visible browser and wait while you complete Economist login manually.",
     )
     return parser
 

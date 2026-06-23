@@ -127,6 +127,8 @@ class ArticleStore:
             article = _row_to_article(row)
             if any(pattern and pattern in article.url for pattern in excluded):
                 continue
+            if article.content_status == "ok" and article.content_html:
+                continue
             if force or _needs_fetch(article, retry_failed_after_seconds):
                 pending.append(article)
             if len(pending) >= limit:

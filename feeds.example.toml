@@ -15,7 +15,7 @@ browser_wait_ms = 3000
 auth_wait_seconds = 600
 browser_user_data_dir = ".cache/economist-browser-profile"
 browser_storage_state = ".cache/economist-browser-state.json"
-login_url = "https://www.economist.com/api/my-account"
+login_url = "https://www.economist.com/api/auth/login"
 verify_url = "https://www.economist.com/culture/2026/06/19/plot-twist-newsletter-the-art-of-adolescence"
 exclude_url_patterns = [
   "/podcasts/",

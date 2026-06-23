@@ -40,7 +40,7 @@ class AppConfig:
     auth_wait_seconds: int = 600
     browser_user_data_dir: str = ".cache/economist-browser-profile"
     browser_storage_state: str = ".cache/economist-browser-state.json"
-    login_url: str = "https://www.economist.com/api/my-account"
+    login_url: str = "https://www.economist.com/api/auth/login"
     verify_url: str = (
         "https://www.economist.com/culture/2026/06/19/"
         "plot-twist-newsletter-the-art-of-adolescence"
@@ -98,7 +98,7 @@ def load_config(path: str | Path) -> AppConfig:
             "ECONOMIST_BROWSER_STORAGE_STATE",
             _string_value(raw, "browser_storage_state", ".cache/economist-browser-state.json"),
         ),
-        login_url=_string_value(raw, "login_url", "https://www.economist.com/api/my-account"),
+        login_url=_string_value(raw, "login_url", "https://www.economist.com/api/auth/login"),
         verify_url=_string_value(
             raw,
             "verify_url",
