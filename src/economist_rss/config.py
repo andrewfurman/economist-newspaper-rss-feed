@@ -34,7 +34,10 @@ class AppConfig:
     user_agent: str = DEFAULT_USER_AGENT
     browser_fetch_enabled: bool = False
     browser_headless: bool = True
+    browser_channel: str = "chrome"
+    browser_executable_path: str = ""
     browser_wait_ms: int = 3000
+    auth_wait_seconds: int = 600
     browser_user_data_dir: str = ".cache/economist-browser-profile"
     browser_storage_state: str = ".cache/economist-browser-state.json"
     login_url: str = "https://www.economist.com/api/my-account"
@@ -73,8 +76,20 @@ def load_config(path: str | Path) -> AppConfig:
         retry_failed_after_seconds=_float_value(raw, "retry_failed_after_seconds", 21600.0),
         user_agent=_string_value(raw, "user_agent", DEFAULT_USER_AGENT),
         browser_fetch_enabled=browser_enabled,
-        browser_headless=_bool_value(raw, "browser_headless", True),
+        browser_headless=_parse_bool(
+            os.environ.get("ECONOMIST_BROWSER_HEADLESS", ""),
+            default=_bool_value(raw, "browser_headless", True),
+        ),
+        browser_channel=os.environ.get(
+            "ECONOMIST_BROWSER_CHANNEL",
+            _string_value(raw, "browser_channel", "chrome"),
+        ),
+        browser_executable_path=os.environ.get(
+            "ECONOMIST_BROWSER_EXECUTABLE_PATH",
+            _string_value(raw, "browser_executable_path", ""),
+        ),
         browser_wait_ms=_int_value(raw, "browser_wait_ms", 3000),
+        auth_wait_seconds=_int_value(raw, "auth_wait_seconds", 600),
         browser_user_data_dir=os.environ.get(
             "ECONOMIST_BROWSER_USER_DATA_DIR",
             _string_value(raw, "browser_user_data_dir", ".cache/economist-browser-profile"),

@@ -4,6 +4,7 @@
 .uv-cache/
 .env
 real.env
+feeds.toml
 data/
 .venv/
 __pycache__/

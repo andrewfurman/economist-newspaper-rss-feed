@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import time
 from typing import Any
 
 from .config import AppConfig
@@ -39,6 +40,10 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
             }
             if os.environ.get("ECONOMIST_BROWSER_NO_SANDBOX", "true").lower() == "true":
                 launch_options["args"].append("--no-sandbox")
+            if config.browser_executable_path:
+                launch_options["executable_path"] = config.browser_executable_path
+            elif config.browser_channel:
+                launch_options["channel"] = config.browser_channel
 
             if user_data_dir:
                 user_data_dir.mkdir(parents=True, exist_ok=True)
@@ -64,10 +69,7 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
             page.set_default_timeout(45_000)
             page.set_default_navigation_timeout(45_000)
             response = page.goto(url, wait_until="domcontentloaded")
-            try:
-                page.wait_for_load_state("networkidle", timeout=5_000)
-            except Exception:
-                pass
+            _wait_for_load_settled(page, timeout=5_000)
             page.wait_for_timeout(config.browser_wait_ms)
             html = page.content()
             final_url = page.url
@@ -142,6 +144,8 @@ def authenticate_browser(config: AppConfig) -> BrowserResult:
             context = playwright.chromium.launch_persistent_context(
                 str(user_data_dir),
                 headless=config.browser_headless,
+                channel=config.browser_channel or None,
+                executable_path=config.browser_executable_path or None,
                 viewport={"width": 1365, "height": 900},
                 locale="en-US",
                 timezone_id=os.environ.get("TZ", "America/Los_Angeles"),
@@ -157,10 +161,7 @@ def authenticate_browser(config: AppConfig) -> BrowserResult:
             page.set_default_timeout(60_000)
             page.set_default_navigation_timeout(60_000)
             page.goto(config.login_url, wait_until="domcontentloaded")
-            try:
-                page.wait_for_load_state("networkidle", timeout=20_000)
-            except Exception:
-                pass
+            _wait_for_load_settled(page, timeout=5_000)
             _dismiss_cookie_prompts(page)
             _fill_login_form(page, email=email, password=password)
             result = _verify_login(page, config)
@@ -194,7 +195,7 @@ def _fill_login_form(page: Any, *, email: str, password: str) -> None:
     email_input = page.locator(
         'input[type="email"], input[name="username"], input[type="text"][name*="user" i], '
         'input[name*="email" i], input[id*="email" i], input[autocomplete="username"]'
-    ).first()
+    ).first
     email_input.wait_for(state="visible", timeout=60_000)
     email_input.fill(email)
     _click_first(
@@ -210,7 +211,7 @@ def _fill_login_form(page: Any, *, email: str, password: str) -> None:
     password_input = page.locator(
         'input[type="password"], input[name*="password" i], input[id*="password" i], '
         'input[autocomplete="current-password"]'
-    ).first()
+    ).first
     password_input.wait_for(state="visible", timeout=60_000)
     password_input.fill(password)
     _click_first(
@@ -222,19 +223,33 @@ def _fill_login_form(page: Any, *, email: str, password: str) -> None:
             'input[type="submit"]',
         ],
     )
-    try:
-        page.wait_for_load_state("networkidle", timeout=30_000)
-    except Exception:
-        pass
+    _wait_for_load_settled(page, timeout=5_000)
 
 
 def _verify_login(page: Any, config: AppConfig) -> BrowserResult:
-    page.goto(config.verify_url, wait_until="domcontentloaded")
-    try:
-        page.wait_for_load_state("networkidle", timeout=20_000)
-    except Exception:
-        pass
-    page.wait_for_timeout(config.browser_wait_ms)
+    deadline = time.monotonic() + max(1, config.auth_wait_seconds)
+    last = BrowserResult(
+        ok=False,
+        status="not_checked",
+        message="The verification page has not been checked yet.",
+        url=config.verify_url,
+        final_url=config.verify_url,
+    )
+
+    while time.monotonic() < deadline:
+        page.goto(config.verify_url, wait_until="domcontentloaded")
+        _wait_for_load_settled(page, timeout=5_000)
+        _dismiss_cookie_prompts(page)
+        page.wait_for_timeout(config.browser_wait_ms)
+        last = _inspect_verification_page(page, config.verify_url)
+        if last.ok:
+            return last
+        page.wait_for_timeout(5_000)
+
+    return last
+
+
+def _inspect_verification_page(page: Any, verify_url: str) -> BrowserResult:
     html = page.content()
     article = extract_article(html)
     if is_cloudflare_challenge(html):
@@ -242,7 +257,7 @@ def _verify_login(page: Any, config: AppConfig) -> BrowserResult:
             ok=False,
             status="blocked_by_cloudflare",
             message="The verification page is still behind a Cloudflare challenge.",
-            url=config.verify_url,
+            url=verify_url,
             final_url=page.url,
             article=article,
         )
@@ -251,7 +266,7 @@ def _verify_login(page: Any, config: AppConfig) -> BrowserResult:
             ok=False,
             status="excerpt_or_login_required",
             message="The verification page did not expose full subscriber text.",
-            url=config.verify_url,
+            url=verify_url,
             final_url=page.url,
             article=article,
         )
@@ -259,13 +274,27 @@ def _verify_login(page: Any, config: AppConfig) -> BrowserResult:
         ok=True,
         status="authenticated_full_text_available",
         message="Full article text appears to be available.",
-        url=config.verify_url,
+        url=verify_url,
         final_url=page.url,
         article=article,
     )
 
 
 def _dismiss_cookie_prompts(page: Any) -> None:
+    try:
+        page.evaluate(
+            """
+            () => {
+              const buttons = Array.from(document.querySelectorAll('button'));
+              const match = buttons.find((button) =>
+                /^(continue|accept|accept all|i agree)$/i.test((button.innerText || '').trim())
+              );
+              if (match) match.click();
+            }
+            """
+        )
+    except Exception:
+        pass
     _click_first(
         page,
         [
@@ -281,7 +310,7 @@ def _dismiss_cookie_prompts(page: Any) -> None:
 
 def _click_first(page: Any, selectors: list[str], *, optional: bool = False) -> bool:
     for selector in selectors:
-        locator = page.locator(selector).first()
+        locator = page.locator(selector).first
         if locator.count() == 0:
             continue
         try:
@@ -292,3 +321,14 @@ def _click_first(page: Any, selectors: list[str], *, optional: bool = False) -> 
     if optional:
         return False
     raise RuntimeError(f"Could not click any selector: {', '.join(selectors)}")
+
+
+def _wait_for_load_settled(page: Any, *, timeout: int) -> None:
+    try:
+        page.wait_for_load_state("load", timeout=timeout)
+    except Exception:
+        pass
+    try:
+        page.wait_for_load_state("networkidle", timeout=timeout)
+    except Exception:
+        pass

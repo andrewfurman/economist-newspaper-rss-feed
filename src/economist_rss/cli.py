@@ -31,6 +31,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.feed_url:
         config = _with_cli_feeds(config, args.feed_url, args.limit)
+    if args.headed or args.auth_wait_seconds is not None:
+        config = _with_browser_overrides(
+            config,
+            headed=args.headed,
+            auth_wait_seconds=args.auth_wait_seconds,
+        )
 
     if args.command == "auth":
         result = authenticate_browser(config)
@@ -141,6 +147,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Port for serve command. Defaults to ECONOMIST_PORT or 8080.",
     )
+    parser.add_argument(
+        "--headed",
+        action="store_true",
+        help="Run browser auth/fetch with a visible browser window.",
+    )
+    parser.add_argument(
+        "--auth-wait-seconds",
+        type=int,
+        default=None,
+        help="How long auth should wait for subscriber full-text verification.",
+    )
     return parser
 
 
@@ -169,9 +186,43 @@ def _with_cli_feeds(config: AppConfig, feed_urls: list[str], limit: int | None) 
         max_articles_per_refresh=config.max_articles_per_refresh,
         retry_failed_after_seconds=config.retry_failed_after_seconds,
         user_agent=config.user_agent,
+            browser_fetch_enabled=config.browser_fetch_enabled,
+            browser_headless=config.browser_headless,
+            browser_channel=config.browser_channel,
+            browser_executable_path=config.browser_executable_path,
+            browser_wait_ms=config.browser_wait_ms,
+        auth_wait_seconds=config.auth_wait_seconds,
+        browser_user_data_dir=config.browser_user_data_dir,
+        browser_storage_state=config.browser_storage_state,
+        login_url=config.login_url,
+        verify_url=config.verify_url,
+        exclude_url_patterns=config.exclude_url_patterns,
+    )
+
+
+def _with_browser_overrides(
+    config: AppConfig,
+    *,
+    headed: bool = False,
+    auth_wait_seconds: int | None = None,
+) -> AppConfig:
+    return AppConfig(
+        feeds=config.feeds,
+        output_path=config.output_path,
+        database_path=config.database_path,
+        timeout_seconds=config.timeout_seconds,
+        refresh_interval_seconds=config.refresh_interval_seconds,
+        min_article_delay_seconds=config.min_article_delay_seconds,
+        max_article_delay_seconds=config.max_article_delay_seconds,
+        max_articles_per_refresh=config.max_articles_per_refresh,
+        retry_failed_after_seconds=config.retry_failed_after_seconds,
+        user_agent=config.user_agent,
         browser_fetch_enabled=config.browser_fetch_enabled,
-        browser_headless=config.browser_headless,
+        browser_headless=False if headed else config.browser_headless,
+        browser_channel=config.browser_channel,
+        browser_executable_path=config.browser_executable_path,
         browser_wait_ms=config.browser_wait_ms,
+        auth_wait_seconds=auth_wait_seconds or config.auth_wait_seconds,
         browser_user_data_dir=config.browser_user_data_dir,
         browser_storage_state=config.browser_storage_state,
         login_url=config.login_url,

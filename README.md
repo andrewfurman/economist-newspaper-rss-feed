@@ -71,6 +71,17 @@ Authenticate and save browser state:
 economist-rss auth --env-file real.env --config feeds.toml
 ```
 
+If The Economist or Cloudflare requires human verification, use a visible
+browser window:
+
+```bash
+economist-rss auth --env-file real.env --config feeds.toml --headed --auth-wait-seconds 600
+```
+
+Click any Cloudflare `Verify you are human` challenge yourself. The script will
+continue waiting for subscriber full-text access and save the resulting browser
+state when verification succeeds.
+
 Refresh the cache and build a feed:
 
 ```bash
