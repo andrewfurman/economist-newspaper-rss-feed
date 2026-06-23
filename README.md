@@ -143,7 +143,19 @@ The defaults intentionally behave like a patient human subscriber:
 - maximum 12 new article downloads per refresh
 - no repeat download after an article is successfully cached
 - exponential retry delay for failures
-- stop treating Cloudflare/403/login pages as article text
+- stop the current refresh batch when The Economist returns a rate-limit,
+  Cloudflare, login, or short-excerpt response
+
+Observed live signal: during the June 23, 2026 cache fill, an article fetch from
+The Economist returned HTTP `403`. This project records that as
+`content_status = 'rate_limited'` and treats HTTP `403`, HTTP `429`,
+Cloudflare challenge pages, login pages, and excerpt-only pages as stop signs.
+When one appears, the refresh exits instead of trying the remaining articles in
+the same run.
+
+Do not run parallel catch-up jobs, tight manual loops, or forced refreshes
+against the same database. For normal operation, let the hourly timer fetch a
+small number of uncached articles sequentially.
 
 See [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 

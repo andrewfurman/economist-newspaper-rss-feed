@@ -15,6 +15,8 @@ As of June 23, 2026:
   environment.
 - The article pages are protected by subscriber access and may also be
   challenged by Cloudflare.
+- A live cache-fill run for this service saw an Economist article fetch return
+  HTTP `403`. The service records this as `content_status = 'rate_limited'`.
 
 Relevant references:
 
@@ -48,6 +50,31 @@ This means:
 - Successfully cached articles are not downloaded again.
 - Failed articles wait at least six hours before retry, multiplied by the
   attempt count.
+
+## Observed Stop Signal
+
+The important operational lesson from the June 23, 2026 live run is that an
+article HTTP `403` should be treated conservatively. Do not keep fetching other
+articles after seeing it.
+
+The refresh code treats these as stop signs:
+
+- HTTP `403`
+- HTTP `429`
+- Cloudflare challenge pages
+- login/subscription pages
+- excerpt-only article pages
+- RSS-Bridge-style placeholders such as `resulted in 403 Forbidden`
+
+When a stop sign appears, the service records the article error, writes
+`last_refresh_stop_reason`, and exits the current refresh batch. A later hourly
+refresh can retry after the configured backoff window. This is intentionally
+slower than a catch-up loop because avoiding rate limits is more important than
+populating every article immediately.
+
+Manual backfills should stay one-at-a-time and sequential. Do not run parallel
+refresh processes, tight `--force` loops, or multiple hosts against the same
+Economist account.
 
 ## Why Not Fetch On Every RSS Request?
 
