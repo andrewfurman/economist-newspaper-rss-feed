@@ -25,7 +25,7 @@ class BrowserResult:
 def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
     sync_playwright = _sync_playwright()
     storage_state = Path(config.browser_storage_state)
-    user_data_dir = Path(config.browser_user_data_dir)
+    user_data_dir = Path(config.browser_user_data_dir) if config.browser_user_data_dir else None
 
     with sync_playwright() as playwright:
         context = None
@@ -47,7 +47,7 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
             elif config.browser_channel:
                 launch_options["channel"] = config.browser_channel
 
-            if user_data_dir:
+            if user_data_dir is not None:
                 user_data_dir.mkdir(parents=True, exist_ok=True)
                 context = playwright.chromium.launch_persistent_context(
                     str(user_data_dir),
@@ -139,30 +139,49 @@ def authenticate_browser(config: AppConfig, *, manual_login: bool = False) -> Br
         )
 
     sync_playwright = _sync_playwright()
-    user_data_dir = Path(config.browser_user_data_dir)
+    user_data_dir = Path(config.browser_user_data_dir) if config.browser_user_data_dir else None
     storage_state = Path(config.browser_storage_state)
 
     with sync_playwright() as playwright:
         context = None
+        browser = None
         try:
-            user_data_dir.mkdir(parents=True, exist_ok=True)
-            context = playwright.chromium.launch_persistent_context(
-                str(user_data_dir),
-                headless=config.browser_headless,
-                channel=config.browser_channel or None,
-                executable_path=config.browser_executable_path or None,
-                viewport={"width": 1365, "height": 900},
-                locale="en-US",
-                timezone_id=os.environ.get("TZ", "America/Los_Angeles"),
-                args=[
+            launch_options: dict[str, Any] = {
+                "headless": config.browser_headless,
+                "args": [
                     "--disable-dev-shm-usage",
                     "--disable-blink-features=AutomationControlled",
                     "--no-first-run",
                     "--no-default-browser-check",
                     "--no-sandbox",
                 ],
-            )
-            _close_existing_pages(context)
+            }
+            if config.browser_executable_path:
+                launch_options["executable_path"] = config.browser_executable_path
+            elif config.browser_channel:
+                launch_options["channel"] = config.browser_channel
+
+            if user_data_dir is not None:
+                user_data_dir.mkdir(parents=True, exist_ok=True)
+                context = playwright.chromium.launch_persistent_context(
+                    str(user_data_dir),
+                    **launch_options,
+                    viewport={"width": 1365, "height": 900},
+                    locale="en-US",
+                    timezone_id=os.environ.get("TZ", "America/Los_Angeles"),
+                )
+                _close_existing_pages(context)
+            else:
+                browser = playwright.chromium.launch(**launch_options)
+                context_options: dict[str, Any] = {
+                    "viewport": {"width": 1365, "height": 900},
+                    "locale": "en-US",
+                    "timezone_id": os.environ.get("TZ", "America/Los_Angeles"),
+                }
+                if storage_state.exists():
+                    context_options["storage_state"] = str(storage_state)
+                context = browser.new_context(**context_options)
+
             page = context.new_page()
             page.set_default_timeout(60_000)
             page.set_default_navigation_timeout(60_000)
@@ -188,6 +207,8 @@ def authenticate_browser(config: AppConfig, *, manual_login: bool = False) -> Br
         finally:
             if context is not None:
                 context.close()
+            if browser is not None:
+                browser.close()
 
 
 def _sync_playwright() -> Any:

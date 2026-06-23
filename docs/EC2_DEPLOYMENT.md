@@ -42,7 +42,8 @@ In `/etc/economist-rss/feeds.toml`, use persistent data paths:
 ```toml
 output_path = "/var/lib/economist-rss/economist-fulltext.xml"
 database_path = "/var/lib/economist-rss/economist-rss.sqlite3"
-browser_user_data_dir = "/var/lib/economist-rss/browser-profile"
+# Leave this empty when copying a Playwright storage_state JSON from another host.
+browser_user_data_dir = ""
 browser_storage_state = "/var/lib/economist-rss/browser-state.json"
 ```
 
