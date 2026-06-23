@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 import sqlite3
 from typing import Iterable
 
 from .feed import FeedItem
-from .util import canonical_url, now_iso, parse_datetime, stable_id
+from .util import canonical_url, normalized_datetime, now_iso, parse_datetime, stable_id
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,7 @@ class StoredArticle:
     title: str
     summary: str | None
     published: str | None
+    published_at: str | None
     source: str | None
     content_html: str | None
     content_text: str | None
@@ -69,15 +71,16 @@ class ArticleStore:
             """
             insert into articles (
               canonical_url, url, guid, title, summary, published, source,
-              first_seen_at, updated_at, attempt_count
+              published_at, first_seen_at, updated_at, attempt_count
             )
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             on conflict(canonical_url) do update set
               url = excluded.url,
               guid = coalesce(nullif(excluded.guid, ''), articles.guid),
               title = excluded.title,
               summary = excluded.summary,
               published = excluded.published,
+              published_at = excluded.published_at,
               source = excluded.source,
               updated_at = excluded.updated_at
             """,
@@ -89,6 +92,7 @@ class ArticleStore:
                 item.summary,
                 item.published,
                 item.source,
+                normalized_datetime(item.published),
                 timestamp,
                 timestamp,
             ),
@@ -110,14 +114,15 @@ class ArticleStore:
         limit: int,
         retry_failed_after_seconds: float,
         exclude_url_patterns: Iterable[str],
+        published_after: datetime | None = None,
         force: bool = False,
     ) -> list[StoredArticle]:
         rows = self.conn.execute(
             """
             select * from articles
             order by
-              case when published is null or published = '' then 1 else 0 end,
-              published desc,
+              case when published_at is null or published_at = '' then 1 else 0 end,
+              published_at desc,
               first_seen_at desc
             """
         ).fetchall()
@@ -125,6 +130,8 @@ class ArticleStore:
         pending: list[StoredArticle] = []
         for row in rows:
             article = _row_to_article(row)
+            if published_after and not _is_recent_article(article, published_after):
+                continue
             if any(pattern and pattern in article.url for pattern in excluded):
                 continue
             if article.content_status == "ok" and article.content_html:
@@ -186,18 +193,34 @@ class ArticleStore:
         )
         self.conn.commit()
 
-    def feed_items(self, *, limit: int = 200) -> list[FeedItem]:
+    def feed_items(
+        self,
+        *,
+        limit: int = 200,
+        published_after: datetime | None = None,
+    ) -> list[FeedItem]:
+        params: list[object] = []
+        where = [
+            "content_status = 'ok'",
+            "content_html is not null",
+            "content_html != ''",
+        ]
+        if published_after is not None:
+            where.append("(published_at is null or published_at >= ?)")
+            params.append(published_after.isoformat())
+        params.append(limit)
+
         rows = self.conn.execute(
             """
             select * from articles
-            where content_status = 'ok' and content_html is not null and content_html != ''
+            where """ + " and ".join(where) + """
             order by
-              case when published is null or published = '' then 1 else 0 end,
-              published desc,
+              case when published_at is null or published_at = '' then 1 else 0 end,
+              published_at desc,
               fetched_at desc
             limit ?
             """,
-            (limit,),
+            params,
         ).fetchall()
         return [
             FeedItem(
@@ -231,6 +254,7 @@ class ArticleStore:
               title text not null,
               summary text,
               published text,
+              published_at text,
               source text,
               content_html text,
               content_text text,
@@ -246,6 +270,11 @@ class ArticleStore:
             """
         )
         self.conn.execute("create index if not exists idx_articles_published on articles(published)")
+        _ensure_column(self.conn, "articles", "published_at", "text")
+        _backfill_published_at(self.conn)
+        self.conn.execute(
+            "create index if not exists idx_articles_published_at on articles(published_at)"
+        )
         self.conn.execute(
             "create index if not exists idx_articles_status on articles(content_status)"
         )
@@ -267,6 +296,11 @@ def _needs_fetch(article: StoredArticle, retry_failed_after_seconds: float) -> b
     return elapsed >= backoff
 
 
+def _is_recent_article(article: StoredArticle, published_after: datetime) -> bool:
+    published = parse_datetime(article.published_at or article.published)
+    return published is None or published >= published_after
+
+
 def _row_to_article(row: sqlite3.Row) -> StoredArticle:
     return StoredArticle(
         canonical_url=row["canonical_url"],
@@ -275,6 +309,7 @@ def _row_to_article(row: sqlite3.Row) -> StoredArticle:
         title=row["title"] or "Untitled",
         summary=row["summary"],
         published=row["published"],
+        published_at=row["published_at"],
         source=row["source"],
         content_html=row["content_html"],
         content_text=row["content_text"],
@@ -285,3 +320,34 @@ def _row_to_article(row: sqlite3.Row) -> StoredArticle:
         last_attempt_at=row["last_attempt_at"],
         attempt_count=int(row["attempt_count"] or 0),
     )
+
+
+def _ensure_column(
+    conn: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    column_type: str,
+) -> None:
+    columns = {row["name"] for row in conn.execute(f"pragma table_info({table_name})")}
+    if column_name not in columns:
+        conn.execute(f"alter table {table_name} add column {column_name} {column_type}")
+
+
+def _backfill_published_at(conn: sqlite3.Connection) -> None:
+    rows = conn.execute(
+        """
+        select canonical_url, published
+        from articles
+        where (published_at is null or published_at = '')
+          and published is not null
+          and published != ''
+        """
+    ).fetchall()
+    for row in rows:
+        published_at = normalized_datetime(row["published"])
+        if not published_at:
+            continue
+        conn.execute(
+            "update articles set published_at = ? where canonical_url = ?",
+            (published_at, row["canonical_url"]),
+        )

@@ -13,7 +13,7 @@ from .extract import ArticleContent, extract_article, is_cloudflare_challenge
 from .feed import FeedItem, parse_feed
 from .fetch import FetchError, Fetcher
 from .store import ArticleStore, StoredArticle
-from .util import now_iso, parse_datetime
+from .util import cutoff_datetime, now_iso, parse_datetime
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,7 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
     feed_items_seen = 0
     articles_fetched = 0
     articles_failed = 0
+    published_after = cutoff_datetime(config.article_lookback_days)
 
     for feed_config in config.feeds:
         feeds_checked += 1
@@ -74,6 +75,7 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
             continue
         if feed_config.limit is not None:
             items = items[: feed_config.limit]
+        items = _recent_feed_items(items, published_after)
         feed_items_seen += len(items)
         for item in items:
             store.upsert_feed_item(_normal_feed_item(item))
@@ -82,6 +84,7 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
         limit=max(0, config.max_articles_per_refresh),
         retry_failed_after_seconds=config.retry_failed_after_seconds,
         exclude_url_patterns=config.exclude_url_patterns,
+        published_after=published_after,
         force=force,
     )
 
@@ -160,6 +163,20 @@ def _is_stale(store: ArticleStore, refresh_interval_seconds: float) -> bool:
 def _normal_feed_item(item: FeedItem) -> FeedItem:
     item.guid = item.guid or item.link
     return item
+
+
+def _recent_feed_items(
+    items: list[FeedItem],
+    published_after: datetime | None,
+) -> list[FeedItem]:
+    if published_after is None:
+        return items
+    recent: list[FeedItem] = []
+    for item in items:
+        published = parse_datetime(item.published)
+        if published is None or published >= published_after:
+            recent.append(item)
+    return recent
 
 
 def _polite_delay(config: AppConfig) -> None:
