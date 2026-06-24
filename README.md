@@ -48,6 +48,9 @@ generated RSS does not include audio enclosures. `The World in Brief` is not a
 normal dated RSS item, so the service fetches
 `https://www.economist.com/the-world-in-brief` with the authenticated browser no
 more than once per hour and saves the resolved dated page as a text RSS item.
+Economic data and market-indicator pages are accepted as shorter table/data
+items, rather than treated as login failures just because they have less prose
+than a standard article.
 
 ## Files
 

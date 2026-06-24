@@ -11,7 +11,7 @@ import re
 import time
 from contextlib import contextmanager
 
-from .browser import fetch_article_with_browser
+from .browser import fetch_article_with_browser, minimum_text_length_for_url
 from .config import AppConfig
 from .extract import ArticleContent, extract_article, is_cloudflare_challenge
 from .feed import FeedItem, parse_feed
@@ -267,7 +267,7 @@ def _fetch_article(
         )
 
     content = extract_article(response.text)
-    if content is None or len(content.text) < 700:
+    if content is None or len(content.text) < minimum_text_length_for_url(article.url):
         store.mark_fetch_error(
             article,
             status="excerpt_or_login_required",
