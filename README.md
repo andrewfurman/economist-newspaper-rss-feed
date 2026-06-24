@@ -30,6 +30,8 @@ The service is cache-first.
 4. It fetches articles sequentially, with a randomized delay between requests.
 5. It writes or serves a normal RSS 2.0 feed with `content:encoded` article
    bodies.
+6. It emits RSS `<category>` tags for Economist sections so readers can filter
+   or search by section.
 
 By default, RSS reader requests are limited by a 5-minute freshness guard,
 discover articles from the last 30 days, and fetch at most three new article
@@ -51,6 +53,26 @@ more than once per hour and saves the resolved dated page as a text RSS item.
 Economic data and market-indicator pages are accepted as shorter table/data
 items, rather than treated as login failures just because they have less prose
 than a standard article.
+
+## RSS Structure
+
+The generated feed is RSS 2.0 with the `content:encoded` namespace for full
+article bodies. Each item includes the normal RSS fields `title`, `link`,
+`guid`, `pubDate`, `description`, and `source` when available.
+
+Items also include RSS `<category>` elements for section-level filtering in RSS
+readers. Categories are derived from Economist URL paths, for example:
+
+- `https://www.economist.com/finance-and-economics/...` becomes
+  `Finance and Economics`
+- `https://www.economist.com/united-states/...` becomes `United States`
+- `https://www.economist.com/in-brief/...` becomes `In Brief`
+- `https://www.economist.com/the-world-in-brief/...` becomes
+  `The World in Brief`
+
+Interactive URLs can include both the underlying section and format, such as
+`Europe` and `Interactive`. The RSS `<source>` field remains the upstream feed
+source; use `<category>` for reader filtering by newspaper section.
 
 ## Files
 
