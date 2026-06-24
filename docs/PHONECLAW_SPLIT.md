@@ -38,7 +38,7 @@ database-backed setting:
     "feed_url": "https://private.example.com/economist/rss.xml",
     "refresh_url": "https://private.example.com/economist/refresh",
     "refresh_token_env": "ECONOMIST_REFRESH_TOKEN",
-    "refresh_ttl_seconds": 600,
+    "refresh_ttl_seconds": 300,
     "enabled": true
   },
   {
@@ -102,10 +102,11 @@ Refresh should be debounce/cache-first:
 For the Economist specifically, the separate Economist RSS server should handle
 article-level throttling and caching:
 
-- default refresh interval: 10 minutes;
+- default refresh interval: 5 minutes;
 - sequential full article fetches only;
 - randomized 75-180 second delay between article fetches;
-- maximum two new article fetches per 10-minute refresh;
+- maximum two new article fetches per 5-minute refresh during the monitored
+  trial;
 - default article lookback: 30 days;
 - podcast entries included as text pages or episode notes, without audio
   enclosures;

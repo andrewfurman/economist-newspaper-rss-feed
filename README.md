@@ -31,9 +31,9 @@ The service is cache-first.
 5. It writes or serves a normal RSS 2.0 feed with `content:encoded` article
    bodies.
 
-By default, refreshes are limited to once every 10 minutes, discover articles
+By default, refreshes are limited to once every 5 minutes, discover articles
 from the last 30 days, and fetch at most two new article bodies per refresh.
-That keeps the normal ceiling at 12 article fetches per hour while still
+That sets the normal trial ceiling at 24 article fetches per hour while still
 backfilling incrementally. If your RSS reader asks for `/rss.xml` repeatedly
 within that window, it receives the cached feed without touching The Economist.
 
@@ -134,7 +134,7 @@ The recommended production model is a separate small EC2 instance just for this
 service.
 
 - Run the HTTP RSS server continuously.
-- Add a systemd timer every 10 minutes to refresh in the background.
+- Add a systemd timer every 5 minutes to refresh in the background.
 - Keep the RSS endpoint private behind a long random `ECONOMIST_FEED_TOKEN`,
   VPN, Tailscale, basic auth, or a private reverse proxy.
 - Keep `real.env`, SQLite data, and browser state on the EC2 volume, never in
@@ -146,12 +146,12 @@ See [docs/EC2_DEPLOYMENT.md](docs/EC2_DEPLOYMENT.md).
 
 The defaults intentionally behave like a patient human subscriber:
 
-- one feed refresh every 10 minutes
+- one feed refresh every 5 minutes
 - latest and section-feed discovery for articles published in the last 30 days
 - one article request at a time
 - randomized 75-180 second delay between article fetches
 - maximum two new article downloads per refresh
-- maximum 12 article-page fetches per hour during normal scheduled operation
+- maximum 24 article-page fetches per hour during this trial
 - World in Brief browser refresh at most once per hour
 - no repeat download after an article is successfully cached
 - exponential retry delay for failures
@@ -167,8 +167,10 @@ When one appears, the refresh exits instead of trying the remaining articles in
 the same run.
 
 Do not run parallel catch-up jobs, tight manual loops, or forced refreshes
-against the same database. For normal operation, let the 10-minute timer fetch
-at most two uncached articles sequentially.
+against the same database. For normal operation, let the 5-minute timer fetch
+at most two uncached articles sequentially. If the telemetry shows HTTP `403`,
+HTTP `429`, or Cloudflare challenges, switch back to one article per 5-minute
+refresh or the previous 10-minute cadence.
 
 See [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 

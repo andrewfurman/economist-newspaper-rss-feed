@@ -31,7 +31,7 @@ Relevant references:
 Use these defaults in production:
 
 ```toml
-refresh_interval_seconds = 600
+refresh_interval_seconds = 300
 article_lookback_days = 30
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
@@ -43,13 +43,13 @@ world_in_brief_refresh_interval_seconds = 3600
 This means:
 
 - RSS readers can poll the private feed often, but upstream Economist refreshes
-  happen at most every 10 minutes.
+  happen at most every 5 minutes.
 - Discovery is limited to configured RSS items published in the last 30 days.
 - The default config uses section RSS feeds because `latest/rss.xml` alone is
   capped at 300 items and may not reach 30 days.
 - New article fetches happen sequentially.
 - A normal refresh fetches at most two article bodies.
-- The normal scheduled ceiling is 12 article-page fetches per hour.
+- The normal scheduled trial ceiling is 24 article-page fetches per hour.
 - The World in Brief special fetch runs at most once per hour and counts
   against the article-fetch budget.
 - Successfully cached articles are not downloaded again.
@@ -81,6 +81,11 @@ Manual backfills should stay one-at-a-time and sequential. Do not run parallel
 refresh processes, tight `--force` loops, or multiple hosts against the same
 Economist account.
 
+The 5-minute/two-article setting is intentionally a monitored trial. If
+telemetry shows HTTP `403`, HTTP `429`, Cloudflare challenges, or repeated
+excerpt/login responses, reduce `max_articles_per_refresh` to `1` or restore a
+10-minute timer.
+
 ## Why Not Fetch On Every RSS Request?
 
 RSS readers vary widely. Some poll every few minutes, some retry aggressively
@@ -94,7 +99,7 @@ The server therefore separates reading from refreshing:
 - `GET /rss.xml` also triggers refresh only when the cache is stale.
 - `POST /refresh` can force a refresh when protected by
   `ECONOMIST_REFRESH_TOKEN`.
-- A systemd timer can refresh every 10 minutes independent of reader behavior.
+- A systemd timer can refresh every 5 minutes independent of reader behavior.
 
 ## Fetch Telemetry
 
