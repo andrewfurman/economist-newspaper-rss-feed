@@ -75,9 +75,24 @@ missing. URL fallback examples:
 - `https://www.economist.com/the-world-in-brief/...` becomes
   `The World in Brief`
 
+Some items also get title-derived category tags when the URL section alone is
+too broad. For example, `The US in Brief: ...` emits both `In Brief` and
+`United States`, and `The World in Brief` emits `The World in Brief`.
+
 Interactive URLs can include both the underlying section and format, such as
 `Europe` and `Interactive`. The RSS `<source>` field remains the upstream feed
 source; use `<category>` for reader filtering by newspaper section.
+
+The HTTP server also supports optional category filtering while still returning
+standard RSS 2.0 output:
+
+```text
+GET /rss.xml?token=long-random-token-for-rss-reader&category=United%20States
+```
+
+Use repeated `category` parameters or comma-separated values to match any of
+several categories. Matching is case-insensitive and uses the same `<category>`
+values emitted in the RSS items.
 
 ## Files
 
@@ -160,6 +175,7 @@ http://127.0.0.1:8080/rss.xml?token=long-random-token-for-rss-reader
 
 When `ECONOMIST_FEED_TOKEN` is set, `GET /rss.xml` requires either
 `?token=...` in the URL or an `Authorization: Bearer ...` header.
+Add `&category=United%20States` to return only items with that RSS category.
 
 ## Refresh Strategy
 

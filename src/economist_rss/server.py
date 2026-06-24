@@ -6,7 +6,7 @@ from threading import Lock
 from urllib.parse import parse_qs, urlparse
 
 from .config import AppConfig
-from .feed import build_rss
+from .feed import FeedItem, build_rss, categories_for_item
 from .refresh import refresh_if_stale
 from .store import ArticleStore
 from .util import cutoff_datetime
@@ -35,14 +35,22 @@ class EconomistRssServer:
                     with owner.lock:
                         refresh_if_stale(owner.config)
                     with ArticleStore(owner.config.database_path) as store:
-                        rss = build_rss(
-                            store.feed_items(
-                                limit=owner.config.rss_item_limit,
-                                published_after=cutoff_datetime(
-                                    owner.config.article_lookback_days
-                                )
+                        category_filters = _category_filters(parsed.query)
+                        item_limit = None if category_filters else owner.config.rss_item_limit
+                        feed_items = store.feed_items(
+                            limit=item_limit,
+                            published_after=cutoff_datetime(
+                                owner.config.article_lookback_days
                             )
                         )
+                        if category_filters:
+                            feed_items = _filter_items_by_category(
+                                feed_items,
+                                category_filters,
+                            )
+                            if owner.config.rss_item_limit is not None:
+                                feed_items = feed_items[: owner.config.rss_item_limit]
+                        rss = build_rss(feed_items)
                     self._send_text(rss, content_type="application/rss+xml; charset=utf-8")
                     return
                 self.send_error(404)
@@ -96,3 +104,41 @@ def _authorized(authorization_header: str, query: str, token_env_key: str) -> bo
         return True
     tokens = parse_qs(query).get("token", [])
     return any(token == expected for token in tokens)
+
+
+def _category_filters(query: str) -> list[str]:
+    parsed = parse_qs(query)
+    raw_values = [*parsed.get("category", []), *parsed.get("categories", [])]
+    values: list[str] = []
+    for raw_value in raw_values:
+        values.extend(part.strip() for part in raw_value.split(","))
+    return _unique_casefolded(values)
+
+
+def _filter_items_by_category(
+    items: list[FeedItem],
+    category_filters: list[str],
+) -> list[FeedItem]:
+    if not category_filters:
+        return items
+    wanted = {category.casefold() for category in category_filters}
+    return [
+        item
+        for item in items
+        if wanted.intersection(
+            category.casefold() for category in categories_for_item(item)
+        )
+    ]
+
+
+def _unique_casefolded(values: list[str]) -> list[str]:
+    seen = set()
+    unique = []
+    for value in values:
+        normalized = value.strip()
+        key = normalized.casefold()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        unique.append(normalized)
+    return unique
