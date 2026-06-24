@@ -105,7 +105,7 @@ article-level throttling and caching:
 - default refresh interval: 5 minutes;
 - sequential full article fetches only;
 - randomized 75-180 second delay between article fetches;
-- maximum four new article fetches per 5-minute refresh during the monitored
+- maximum five new article fetches per 5-minute refresh during the monitored
   trial;
 - hard 180-second timeout around each browser article fetch;
 - default article lookback: 30 days;
