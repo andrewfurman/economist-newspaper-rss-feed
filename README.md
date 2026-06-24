@@ -32,11 +32,11 @@ The service is cache-first.
    bodies.
 
 By default, RSS reader requests are limited by a 5-minute freshness guard,
-discover articles from the last 30 days, and fetch at most two new article
+discover articles from the last 30 days, and fetch at most three new article
 bodies per refresh. The systemd timer uses `--ignore-refresh-interval` so each
-scheduled 5-minute tick can try to backfill two uncached articles without using
+scheduled 5-minute tick can try to backfill three uncached articles without using
 `--force`; failed article retry backoff still applies. That sets the normal
-trial ceiling at about 24 article fetches per hour while still backfilling
+trial ceiling at about 36 article fetches per hour while still backfilling
 incrementally. If your RSS reader asks for `/rss.xml` repeatedly within the
 freshness window, it receives the cached feed without touching The Economist.
 
@@ -154,8 +154,8 @@ The defaults intentionally behave like a patient human subscriber:
 - latest and section-feed discovery for articles published in the last 30 days
 - one article request at a time
 - randomized 75-180 second delay between article fetches
-- maximum two new article downloads per refresh
-- maximum 24 article-page fetches per hour during this trial
+- maximum three new article downloads per refresh
+- maximum 36 article-page fetches per hour during this trial
 - World in Brief browser refresh at most once per hour
 - no repeat download after an article is successfully cached
 - exponential retry delay for failures
@@ -172,11 +172,12 @@ the same run.
 
 Do not run parallel catch-up jobs, tight manual loops, or forced refreshes
 against the same database. For normal operation, let the 5-minute timer fetch
-at most two uncached articles sequentially. Use `--ignore-refresh-interval`
+at most three uncached articles sequentially. Use `--ignore-refresh-interval`
 only for that scheduled timer; use `--force` only for deliberate debugging
 because it also bypasses failed-article retry backoff. If the telemetry shows
 HTTP `403`, HTTP `429`, or Cloudflare challenges, switch back to one article
-per 5-minute refresh or the previous 10-minute cadence.
+per 5-minute refresh, the previous two-article budget, or the previous
+10-minute cadence.
 
 See [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
