@@ -118,6 +118,29 @@ class ArticleStoreTests(unittest.TestCase):
 
                 self.assertEqual([item.title for item in items], ["Recent"])
 
+    def test_feed_items_limit_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                for index in range(3):
+                    article = store.upsert_feed_item(
+                        FeedItem(
+                            title=f"Story {index}",
+                            link=f"https://www.economist.com/essay/2026/06/2{index}/story",
+                            guid=f"story-{index}",
+                        )
+                    )
+                    store.save_article_content(
+                        article,
+                        content_html=f"<p>Full text {index}</p>",
+                        content_text=f"Full text {index}",
+                        content_source="test",
+                    )
+
+                self.assertEqual(len(store.feed_items(limit=2)), 2)
+                self.assertEqual(len(store.feed_items(limit=None)), 3)
+                self.assertEqual(store.feed_items(limit=0), [])
+
     def test_pending_articles_are_sorted_by_normalized_published_time(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "articles.sqlite3"

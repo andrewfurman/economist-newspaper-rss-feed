@@ -111,6 +111,14 @@ class FeedTests(unittest.TestCase):
             ["The World in Brief"],
         )
 
+    def test_categories_for_essay_url(self):
+        self.assertEqual(
+            categories_for_url(
+                "https://www.economist.com/essay/2026/06/24/why-a-topic-matters"
+            ),
+            ["Essay"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

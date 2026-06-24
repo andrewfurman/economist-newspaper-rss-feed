@@ -198,9 +198,11 @@ class ArticleStore:
     def feed_items(
         self,
         *,
-        limit: int = 200,
+        limit: int | None = 500,
         published_after: datetime | None = None,
     ) -> list[FeedItem]:
+        if limit is not None and limit <= 0:
+            return []
         params: list[object] = []
         where = [
             "content_status = 'ok'",
@@ -210,7 +212,10 @@ class ArticleStore:
         if published_after is not None:
             where.append("(published_at is null or published_at >= ?)")
             params.append(published_after.isoformat())
-        params.append(limit)
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = "limit ?"
+            params.append(limit)
 
         rows = self.conn.execute(
             """
@@ -220,7 +225,7 @@ class ArticleStore:
               case when published_at is null or published_at = '' then 1 else 0 end,
               published_at desc,
               fetched_at desc
-            limit ?
+            """ + limit_clause + """
             """,
             params,
         ).fetchall()

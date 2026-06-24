@@ -1,11 +1,12 @@
 output_path = "dist/economist-fulltext.xml"
 database_path = "data/economist-rss.sqlite3"
+rss_item_limit = 500
 timeout_seconds = 20
 refresh_interval_seconds = 300
 article_lookback_days = 30
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
-max_articles_per_refresh = 3
+max_articles_per_refresh = 4
 retry_failed_after_seconds = 21600
 user_agent = "economist-newspaper-rss-feed/0.1 (+https://github.com/andrewfurman/economist-newspaper-rss-feed)"
 browser_fetch_enabled = false
@@ -36,6 +37,11 @@ limit = 300
 [[feeds]]
 name = "Briefing"
 url = "https://www.economist.com/briefing/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Essay"
+url = "https://www.economist.com/essay/rss.xml"
 limit = 300
 
 [[feeds]]

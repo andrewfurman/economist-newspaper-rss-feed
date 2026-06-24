@@ -105,7 +105,7 @@ article-level throttling and caching:
 - default refresh interval: 5 minutes;
 - sequential full article fetches only;
 - randomized 75-180 second delay between article fetches;
-- maximum three new article fetches per 5-minute refresh during the monitored
+- maximum four new article fetches per 5-minute refresh during the monitored
   trial;
 - default article lookback: 30 days;
 - podcast entries included as text pages or episode notes, without audio

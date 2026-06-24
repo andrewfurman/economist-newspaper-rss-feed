@@ -83,7 +83,9 @@ def main(argv: list[str] | None = None) -> int:
 
     with ArticleStore(config.database_path) as store:
         items = store.feed_items(
-            limit=args.output_limit,
+            limit=args.output_limit
+            if args.output_limit is not None
+            else config.rss_item_limit,
             published_after=cutoff_datetime(config.article_lookback_days),
         )
 
@@ -137,8 +139,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-limit",
         type=int,
-        default=200,
-        help="Maximum cached full-text articles to include in generated RSS.",
+        default=None,
+        help=(
+            "Maximum cached full-text articles to include in generated RSS. "
+            "Defaults to rss_item_limit from the config."
+        ),
     )
     parser.add_argument(
         "--force",
@@ -206,6 +211,7 @@ def _with_cli_feeds(config: AppConfig, feed_urls: list[str], limit: int | None) 
         feeds=_configured_feeds(config, feed_urls, limit),
         output_path=config.output_path,
         database_path=config.database_path,
+        rss_item_limit=config.rss_item_limit,
         timeout_seconds=config.timeout_seconds,
         refresh_interval_seconds=config.refresh_interval_seconds,
         article_lookback_days=config.article_lookback_days,
@@ -243,6 +249,7 @@ def _with_browser_overrides(
         feeds=config.feeds,
         output_path=config.output_path,
         database_path=config.database_path,
+        rss_item_limit=config.rss_item_limit,
         timeout_seconds=config.timeout_seconds,
         refresh_interval_seconds=config.refresh_interval_seconds,
         article_lookback_days=config.article_lookback_days,

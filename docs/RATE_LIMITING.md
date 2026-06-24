@@ -33,9 +33,10 @@ Use these defaults in production:
 ```toml
 refresh_interval_seconds = 300
 article_lookback_days = 30
+rss_item_limit = 500
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
-max_articles_per_refresh = 3
+max_articles_per_refresh = 4
 retry_failed_after_seconds = 21600
 world_in_brief_refresh_interval_seconds = 3600
 ```
@@ -50,9 +51,12 @@ This means:
 - Discovery is limited to configured RSS items published in the last 30 days.
 - The default config uses section RSS feeds because `latest/rss.xml` alone is
   capped at 300 items and may not reach 30 days.
+- The served RSS output is capped at 500 full-text items by default, which is
+  independent of upstream article fetch volume.
 - New article fetches happen sequentially.
-- A normal refresh fetches at most three article bodies.
-- The normal scheduled trial ceiling is about 36 article-page fetches per hour.
+- A normal refresh fetches at most four article bodies.
+- The normal scheduled trial ceiling is about 48 article-page fetches per hour,
+  though the randomized inter-article delay usually keeps the actual rate lower.
 - The World in Brief special fetch runs at most once per hour and counts
   against the article-fetch budget.
 - Successfully cached articles are not downloaded again.
@@ -84,12 +88,12 @@ Manual backfills should stay one-at-a-time and sequential. Do not run parallel
 refresh processes, tight `--force` loops, or multiple hosts against the same
 Economist account.
 
-The 5-minute/three-article setting is intentionally a monitored trial. The
+The 5-minute/four-article setting is intentionally a monitored trial. The
 scheduled service should use `--ignore-refresh-interval`, not `--force`, because
 `--force` also bypasses failed-article retry backoff. If telemetry shows HTTP
 `403`, HTTP `429`, Cloudflare challenges, or repeated excerpt/login responses,
-reduce `max_articles_per_refresh` to `2`, reduce it further to `1`, or restore
-a 10-minute timer.
+reduce `max_articles_per_refresh` to `3`, reduce it further to `2` or `1`, or
+restore a 10-minute timer.
 
 ## Why Not Fetch On Every RSS Request?
 
@@ -150,9 +154,11 @@ or article body text.
 
 ## Source Coverage
 
-The default config includes normal article sections, `In Brief`, `Podcasts`,
-and a special World in Brief source.
+The default config includes normal article sections, `Essay`, `In Brief`,
+`Podcasts`, and a special World in Brief source.
 
+- Essays are discovered from `https://www.economist.com/essay/rss.xml` and
+  tagged with the `Essay` RSS category.
 - `The US in Brief` entries are discovered from
   `https://www.economist.com/in-brief/rss.xml`.
 - Podcast entries are discovered from

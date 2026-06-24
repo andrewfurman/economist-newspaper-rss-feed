@@ -34,18 +34,20 @@ The service is cache-first.
    or search by section.
 
 By default, RSS reader requests are limited by a 5-minute freshness guard,
-discover articles from the last 30 days, and fetch at most three new article
-bodies per refresh. The systemd timer uses `--ignore-refresh-interval` so each
-scheduled 5-minute tick can try to backfill three uncached articles without using
-`--force`; failed article retry backoff still applies. That sets the normal
-trial ceiling at about 36 article fetches per hour while still backfilling
+discover articles from the last 30 days, serve up to 500 full-text RSS items,
+and fetch at most four new article bodies per refresh. The systemd timer uses
+`--ignore-refresh-interval` so each scheduled 5-minute tick can try to backfill
+four uncached articles without using `--force`; failed article retry backoff
+still applies. That sets the normal trial ceiling at about 48 article fetches
+per hour while still backfilling
 incrementally. If your RSS reader asks for `/rss.xml` repeatedly within the
 freshness window, it receives the cached feed without touching The Economist.
 
 The default source list combines `latest/rss.xml` with section feeds because
 `latest/rss.xml` alone is capped at 300 items and may not reach a full 30 days.
-The `In Brief` feed is included, so `The US in Brief` entries are normal RSS
-items. Podcast feed entries are also included as text pages/episode notes; the
+The `Essay` and `In Brief` feeds are included, so essays and `The US in Brief`
+entries are normal RSS items. Podcast feed entries are also included as text
+pages/episode notes; the
 generated RSS does not include audio enclosures. `The World in Brief` is not a
 normal dated RSS item, so the service fetches
 `https://www.economist.com/the-world-in-brief` with the authenticated browser no
@@ -65,6 +67,7 @@ readers. Categories are derived from Economist URL paths, for example:
 
 - `https://www.economist.com/finance-and-economics/...` becomes
   `Finance and Economics`
+- `https://www.economist.com/essay/...` becomes `Essay`
 - `https://www.economist.com/united-states/...` becomes `United States`
 - `https://www.economist.com/in-brief/...` becomes `In Brief`
 - `https://www.economist.com/the-world-in-brief/...` becomes
@@ -177,10 +180,11 @@ The defaults intentionally behave like a patient human subscriber:
 - RSS reads serve cache unless the 5-minute freshness guard has elapsed
 - scheduled timer refresh every 5 minutes with `--ignore-refresh-interval`
 - latest and section-feed discovery for articles published in the last 30 days
+- generated RSS output limit of 500 full-text items
 - one article request at a time
 - randomized 75-180 second delay between article fetches
-- maximum three new article downloads per refresh
-- maximum 36 article-page fetches per hour during this trial
+- maximum four new article downloads per refresh
+- maximum 48 article-page fetches per hour during this trial
 - World in Brief browser refresh at most once per hour
 - no repeat download after an article is successfully cached
 - exponential retry delay for failures
@@ -197,12 +201,12 @@ the same run.
 
 Do not run parallel catch-up jobs, tight manual loops, or forced refreshes
 against the same database. For normal operation, let the 5-minute timer fetch
-at most three uncached articles sequentially. Use `--ignore-refresh-interval`
+at most four uncached articles sequentially. Use `--ignore-refresh-interval`
 only for that scheduled timer; use `--force` only for deliberate debugging
 because it also bypasses failed-article retry backoff. If the telemetry shows
 HTTP `403`, HTTP `429`, or Cloudflare challenges, switch back to one article
-per 5-minute refresh, the previous two-article budget, or the previous
-10-minute cadence.
+per 5-minute refresh, the previous three-article budget, the previous
+two-article budget, or the previous 10-minute cadence.
 
 See [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
