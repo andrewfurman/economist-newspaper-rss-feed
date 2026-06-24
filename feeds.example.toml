@@ -14,6 +14,7 @@ browser_headless = true
 browser_channel = "chrome"
 browser_executable_path = ""
 browser_wait_ms = 3000
+browser_fetch_timeout_seconds = 180
 auth_wait_seconds = 600
 browser_user_data_dir = ".cache/economist-browser-profile"
 browser_storage_state = ".cache/economist-browser-state.json"

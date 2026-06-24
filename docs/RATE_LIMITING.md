@@ -55,6 +55,7 @@ This means:
   independent of upstream article fetch volume.
 - New article fetches happen sequentially.
 - A normal refresh fetches at most four article bodies.
+- Browser article fetches have a hard 180-second timeout.
 - The normal scheduled trial ceiling is about 48 article-page fetches per hour,
   though the randomized inter-article delay usually keeps the actual rate lower.
 - The World in Brief special fetch runs at most once per hour and counts
@@ -76,6 +77,7 @@ The refresh code treats these as stop signs:
 - Cloudflare challenge pages
 - login/subscription pages
 - excerpt-only article pages
+- browser fetch timeout
 - RSS-Bridge-style placeholders such as `resulted in 403 Forbidden`
 
 When a stop sign appears, the service records the article error, writes
@@ -151,6 +153,11 @@ journalctl -u economist-rss-refresh.service --since "7 days ago" \
 
 These logs intentionally do not include credentials, feed tokens, browser state,
 or article body text.
+
+If a rendered article page gets stuck, the browser worker is terminated after
+`browser_fetch_timeout_seconds`, the article is recorded as
+`browser_fetch_timeout`, and the current refresh batch exits. This keeps the
+systemd timer from being blocked indefinitely by one page.
 
 ## Source Coverage
 

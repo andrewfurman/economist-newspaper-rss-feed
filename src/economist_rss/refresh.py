@@ -5,13 +5,20 @@ from datetime import datetime, timezone
 from email.utils import format_datetime
 import json
 import logging
+import multiprocessing
+import os
 from pathlib import Path
 import random
 import re
+import signal
 import time
 from contextlib import contextmanager
 
-from .browser import fetch_article_with_browser, minimum_text_length_for_url
+from .browser import (
+    BrowserResult,
+    fetch_article_with_browser,
+    minimum_text_length_for_url,
+)
 from .config import AppConfig
 from .extract import ArticleContent, extract_article, is_cloudflare_challenge
 from .feed import FeedItem, parse_feed
@@ -210,7 +217,7 @@ def _fetch_article(
     config: AppConfig,
 ) -> ArticleFetchResult:
     if config.browser_fetch_enabled:
-        browser_result = fetch_article_with_browser(article.url, config)
+        browser_result = _fetch_article_with_browser_with_timeout(article.url, config)
         if browser_result.ok and browser_result.article is not None:
             return ArticleFetchResult(
                 content=browser_result.article,
@@ -325,7 +332,7 @@ def _refresh_world_in_brief_if_stale(
         special_source="world_in_brief",
     )
 
-    browser_result = fetch_article_with_browser(url, config)
+    browser_result = _fetch_article_with_browser_with_timeout(url, config)
     store.set_state("world_in_brief_last_fetch_at", now_iso())
     if browser_result.ok and browser_result.article is not None:
         final_url = browser_result.final_url or url
@@ -393,10 +400,103 @@ def _refresh_world_in_brief_if_stale(
 def _is_refresh_stop_status(status: str) -> bool:
     return status in {
         "blocked_by_cloudflare",
+        "browser_fetch_timeout",
         "cloudflare_challenge",
         "excerpt_or_login_required",
         "rate_limited",
     }
+
+
+def _fetch_article_with_browser_with_timeout(url: str, config: AppConfig) -> BrowserResult:
+    timeout_seconds = max(0.0, config.browser_fetch_timeout_seconds)
+    if timeout_seconds <= 0:
+        return fetch_article_with_browser(url, config)
+
+    context = multiprocessing.get_context("fork" if hasattr(os, "fork") else "spawn")
+    parent_conn, child_conn = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_browser_fetch_worker,
+        args=(child_conn, url, config),
+    )
+    process.start()
+    child_conn.close()
+
+    try:
+        if parent_conn.poll(timeout_seconds):
+            try:
+                result = parent_conn.recv()
+            except EOFError:
+                result = BrowserResult(
+                    ok=False,
+                    status="browser_fetch_failed",
+                    message="Browser fetch worker exited without returning a result.",
+                    url=url,
+                    final_url=url,
+                )
+            process.join(timeout=5)
+            if process.is_alive():
+                _terminate_process_group(process)
+            return result
+
+        _terminate_process_group(process)
+        return BrowserResult(
+            ok=False,
+            status="browser_fetch_timeout",
+            message=f"Browser fetch exceeded {timeout_seconds:.0f} seconds.",
+            url=url,
+            final_url=url,
+        )
+    finally:
+        parent_conn.close()
+
+
+def _browser_fetch_worker(conn: object, url: str, config: AppConfig) -> None:
+    if hasattr(os, "setsid"):
+        try:
+            os.setsid()
+        except OSError:
+            pass
+    try:
+        conn.send(fetch_article_with_browser(url, config))
+    except BaseException as exc:  # noqa: BLE001 - preserve worker failure as telemetry.
+        conn.send(
+            BrowserResult(
+                ok=False,
+                status="browser_fetch_failed",
+                message=str(exc),
+                url=url,
+                final_url=url,
+            )
+        )
+    finally:
+        conn.close()
+
+
+def _terminate_process_group(process: multiprocessing.Process) -> None:
+    if process.pid is not None and hasattr(os, "killpg"):
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            process.terminate()
+        except OSError:
+            process.terminate()
+    else:
+        process.terminate()
+
+    process.join(timeout=5)
+    if not process.is_alive():
+        return
+
+    if process.pid is not None and hasattr(os, "killpg"):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            process.kill()
+        except OSError:
+            process.kill()
+    else:
+        process.kill()
+    process.join(timeout=5)
 
 
 def _is_stale(store: ArticleStore, refresh_interval_seconds: float) -> bool:

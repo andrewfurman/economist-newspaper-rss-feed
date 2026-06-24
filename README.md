@@ -184,6 +184,7 @@ The defaults intentionally behave like a patient human subscriber:
 - one article request at a time
 - randomized 75-180 second delay between article fetches
 - maximum four new article downloads per refresh
+- hard 180-second timeout around each browser article fetch
 - maximum 48 article-page fetches per hour during this trial
 - World in Brief browser refresh at most once per hour
 - no repeat download after an article is successfully cached
@@ -198,6 +199,10 @@ The Economist returned HTTP `403`. This project records that as
 Cloudflare challenge pages, login pages, and excerpt-only pages as stop signs.
 When one appears, the refresh exits instead of trying the remaining articles in
 the same run.
+Browser fetches also have a hard timeout so one stuck rendered page cannot block
+the refresh timer indefinitely. A timeout is recorded as
+`content_status = 'browser_fetch_timeout'` and the failed-article retry backoff
+applies before that URL is tried again.
 
 Do not run parallel catch-up jobs, tight manual loops, or forced refreshes
 against the same database. For normal operation, let the 5-minute timer fetch

@@ -1,5 +1,7 @@
 import json
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -240,6 +242,78 @@ class RefreshRateLimitTests(unittest.TestCase):
             self.assertEqual(summary.articles_fetched, 0)
             self.assertEqual(summary.articles_failed, 0)
             self.assertEqual(calls, [feed_url])
+
+    @unittest.skipUnless(hasattr(os, "fork"), "timeout test relies on forked monkeypatch")
+    def test_browser_fetch_timeout_marks_article_and_stops_batch(self):
+        feed_url = "https://www.economist.com/latest/rss.xml"
+        article_url = "https://www.economist.com/leaders/2026/06/04/stuck"
+        rss = f"""
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>Stuck article</title>
+              <link>{article_url}</link>
+              <guid>stuck</guid>
+              <pubDate>Tue, 23 Jun 2026 10:00:00 +0000</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """
+
+        class FakeFetcher:
+            def __init__(self, **_kwargs):
+                pass
+
+            def fetch_text(self, url):
+                if url != feed_url:
+                    raise AssertionError(f"unexpected feed fetch: {url}")
+                return FetchResponse(
+                    url=url,
+                    status=200,
+                    text=rss,
+                    content_type="application/rss+xml",
+                    headers={},
+                )
+
+        def slow_browser_fetch(url, _config):
+            self.assertEqual(url, article_url)
+            time.sleep(5)
+            raise AssertionError("browser fetch should have timed out")
+
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "articles.sqlite3"
+            config = AppConfig(
+                feeds=[FeedConfig(name="The Economist", url=feed_url)],
+                database_path=str(database_path),
+                max_articles_per_refresh=1,
+                min_article_delay_seconds=0,
+                max_article_delay_seconds=0,
+                browser_fetch_enabled=True,
+                browser_fetch_timeout_seconds=0.1,
+                world_in_brief_enabled=False,
+            )
+
+            import economist_rss.refresh as refresh_module
+
+            original_fetcher = refresh_module.Fetcher
+            original_browser_fetch = refresh_module.fetch_article_with_browser
+            refresh_module.Fetcher = FakeFetcher
+            refresh_module.fetch_article_with_browser = slow_browser_fetch
+            try:
+                with ArticleStore(database_path) as store:
+                    summary = refresh(store, config, force=True)
+                    stored = store.get_article(article_url)
+            finally:
+                refresh_module.Fetcher = original_fetcher
+                refresh_module.fetch_article_with_browser = original_browser_fetch
+
+            self.assertEqual(summary.articles_fetched, 0)
+            self.assertEqual(summary.articles_failed, 1)
+            self.assertIn("browser_fetch_timeout", summary.stop_reason)
+            self.assertIsNotNone(stored)
+            assert stored is not None
+            self.assertEqual(stored.content_status, "browser_fetch_timeout")
+            self.assertIn("exceeded", stored.error or "")
 
 
 if __name__ == "__main__":
