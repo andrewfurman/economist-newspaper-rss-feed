@@ -44,7 +44,7 @@ output_path = "/var/lib/economist-rss/economist-fulltext.xml"
 database_path = "/var/lib/economist-rss/economist-rss.sqlite3"
 refresh_interval_seconds = 300
 article_lookback_days = 30
-max_articles_per_refresh = 2
+max_articles_per_refresh = 3
 exclude_url_patterns = []
 world_in_brief_enabled = true
 world_in_brief_refresh_interval_seconds = 3600
@@ -95,12 +95,12 @@ journalctl -u economist-rss-refresh.service --since "24 hours ago" | grep 'artic
 
 The refresh timer runs every 5 minutes and the scheduled service uses
 `--ignore-refresh-interval`, not `--force`. That lets each scheduled tick try
-to fetch up to two uncached articles, while failed or rate-limited articles
+to fetch up to three uncached articles, while failed or rate-limited articles
 remain subject to backoff. Normal RSS reads still use `refresh_interval_seconds`
 as a cache freshness guard. The World in Brief special fetch runs at most once
 per hour. Use manual forced refreshes only for deliberate one-off debugging. If
 the logs show new HTTP `403`, HTTP `429`, or Cloudflare challenge responses,
-reduce `max_articles_per_refresh` to `1` or restore a 10-minute timer.
+reduce `max_articles_per_refresh` to `2` or restore a 10-minute timer.
 
 Back up `/var/lib/economist-rss`, not just the repository. That directory holds
 the SQLite article cache and browser session state.
