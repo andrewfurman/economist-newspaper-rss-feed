@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,7 +68,8 @@ class RefreshRateLimitTests(unittest.TestCase):
                 original_fetcher = refresh_module.Fetcher
                 refresh_module.Fetcher = FakeFetcher
                 try:
-                    summary = refresh(store, config, force=True)
+                    with self.assertLogs("economist_rss.refresh", level="INFO") as logs:
+                        summary = refresh(store, config, force=True)
                 finally:
                     refresh_module.Fetcher = original_fetcher
 
@@ -81,6 +83,20 @@ class RefreshRateLimitTests(unittest.TestCase):
                         "https://www.economist.com/finance/2026/06/23/first",
                     ],
                 )
+                payloads = [
+                    json.loads(message.split("article_fetch ", 1)[1])
+                    for message in logs.output
+                ]
+                self.assertEqual(
+                    [payload["event"] for payload in payloads],
+                    ["article_fetch_start", "article_fetch_result"],
+                )
+                result = payloads[1]
+                self.assertEqual(result["title"], "First")
+                self.assertEqual(result["status"], "rate_limited")
+                self.assertEqual(result["http_status"], 403)
+                self.assertTrue(result["stop_refresh"])
+                self.assertIn("HTTP 403", result["stop_reason"])
 
 
 if __name__ == "__main__":

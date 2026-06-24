@@ -1,11 +1,11 @@
 output_path = "dist/economist-fulltext.xml"
 database_path = "data/economist-rss.sqlite3"
 timeout_seconds = 20
-refresh_interval_seconds = 3600
+refresh_interval_seconds = 600
 article_lookback_days = 7
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
-max_articles_per_refresh = 12
+max_articles_per_refresh = 2
 retry_failed_after_seconds = 21600
 user_agent = "economist-newspaper-rss-feed/0.1 (+https://github.com/andrewfurman/economist-newspaper-rss-feed)"
 browser_fetch_enabled = false

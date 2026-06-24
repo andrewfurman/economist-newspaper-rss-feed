@@ -31,10 +31,11 @@ The service is cache-first.
 5. It writes or serves a normal RSS 2.0 feed with `content:encoded` article
    bodies.
 
-By default, refreshes are limited to once every hour, discover articles from the
-last seven days, and fetch at most 12 new article bodies per refresh. If your
-RSS reader asks for `/rss.xml` repeatedly within that window, it receives the
-cached feed without touching The Economist.
+By default, refreshes are limited to once every 10 minutes, discover articles
+from the last seven days, and fetch at most two new article bodies per refresh.
+That keeps the normal ceiling at 12 article fetches per hour while still
+backfilling incrementally. If your RSS reader asks for `/rss.xml` repeatedly
+within that window, it receives the cached feed without touching The Economist.
 
 ## Files
 
@@ -99,7 +100,7 @@ subscriber article text.
 Refresh the cache and build a feed:
 
 ```bash
-economist-rss refresh --env-file real.env --config feeds.toml --force
+economist-rss refresh --env-file real.env --config feeds.toml
 economist-rss build --env-file real.env --config feeds.toml --output dist/economist-fulltext.xml
 ```
 
@@ -124,7 +125,7 @@ The recommended production model is a separate small EC2 instance just for this
 service.
 
 - Run the HTTP RSS server continuously.
-- Add a systemd timer every hour to refresh in the background.
+- Add a systemd timer every 10 minutes to refresh in the background.
 - Keep the RSS endpoint private behind a long random `ECONOMIST_FEED_TOKEN`,
   VPN, Tailscale, basic auth, or a private reverse proxy.
 - Keep `real.env`, SQLite data, and browser state on the EC2 volume, never in
@@ -136,15 +137,17 @@ See [docs/EC2_DEPLOYMENT.md](docs/EC2_DEPLOYMENT.md).
 
 The defaults intentionally behave like a patient human subscriber:
 
-- one feed refresh every hour
+- one feed refresh every 10 minutes
 - latest-feed discovery for articles published in the last seven days
 - one article request at a time
 - randomized 75-180 second delay between article fetches
-- maximum 12 new article downloads per refresh
+- maximum two new article downloads per refresh
+- maximum 12 article-page fetches per hour during normal scheduled operation
 - no repeat download after an article is successfully cached
 - exponential retry delay for failures
 - stop the current refresh batch when The Economist returns a rate-limit,
   Cloudflare, login, or short-excerpt response
+- structured `article_fetch` log events for every article fetch attempt
 
 Observed live signal: during the June 23, 2026 cache fill, an article fetch from
 The Economist returned HTTP `403`. This project records that as
@@ -154,8 +157,8 @@ When one appears, the refresh exits instead of trying the remaining articles in
 the same run.
 
 Do not run parallel catch-up jobs, tight manual loops, or forced refreshes
-against the same database. For normal operation, let the hourly timer fetch a
-small number of uncached articles sequentially.
+against the same database. For normal operation, let the 10-minute timer fetch
+at most two uncached articles sequentially.
 
 See [docs/RATE_LIMITING.md](docs/RATE_LIMITING.md).
 
