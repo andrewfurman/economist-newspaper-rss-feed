@@ -4,8 +4,11 @@ import unittest
 from economist_rss.feed import FeedItem
 from economist_rss.server import (
     _authorized,
+    _category_from_feed_path,
     _category_filters,
     _filter_items_by_category,
+    _rss_description,
+    _rss_title,
 )
 
 
@@ -55,6 +58,26 @@ class ServerAuthTests(unittest.TestCase):
 
 
 class ServerCategoryFilterTests(unittest.TestCase):
+    def test_category_feed_path_maps_slug_to_category(self):
+        self.assertEqual(
+            _category_from_feed_path("/rss/category/united-states.xml"),
+            "United States",
+        )
+        self.assertEqual(
+            _category_from_feed_path("/rss/category/the-world-in-brief.xml"),
+            "The World in Brief",
+        )
+
+    def test_category_feed_path_accepts_url_encoded_category(self):
+        self.assertEqual(
+            _category_from_feed_path("/rss/category/United%20States.xml"),
+            "United States",
+        )
+
+    def test_category_feed_path_rejects_non_feed_paths(self):
+        self.assertIsNone(_category_from_feed_path("/rss.xml"))
+        self.assertIsNone(_category_from_feed_path("/rss/category/united-states"))
+
     def test_category_filters_accept_repeated_and_comma_separated_values(self):
         self.assertEqual(
             _category_filters(
@@ -86,6 +109,13 @@ class ServerCategoryFilterTests(unittest.TestCase):
         filtered = _filter_items_by_category(items, ["United States"])
 
         self.assertEqual([item.guid for item in filtered], ["us-in-brief"])
+
+    def test_category_feed_metadata_names_filtered_feed(self):
+        self.assertEqual(
+            _rss_title(["United States"]),
+            "The Economist full-text private feed - United States",
+        )
+        self.assertIn("United States", _rss_description(["United States"]))
 
 
 if __name__ == "__main__":

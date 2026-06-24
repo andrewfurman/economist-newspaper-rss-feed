@@ -8,6 +8,7 @@ from economist_rss.feed import (
     categories_for_item,
     categories_for_title,
     categories_for_url,
+    category_for_slug,
     parse_feed,
 )
 
@@ -124,6 +125,18 @@ class FeedTests(unittest.TestCase):
             categories_for_title("World in Brief: Wednesday update"),
             ["The World in Brief"],
         )
+
+    def test_category_for_slug_uses_known_section_names(self):
+        self.assertEqual(category_for_slug("united-states"), "United States")
+        self.assertEqual(
+            category_for_slug("science-and-technology"),
+            "Science and Technology",
+        )
+        self.assertEqual(category_for_slug("the-world-in-brief"), "The World in Brief")
+
+    def test_category_for_slug_accepts_in_brief_aliases(self):
+        self.assertEqual(category_for_slug("us-in-brief"), "United States")
+        self.assertEqual(category_for_slug("world-in-brief"), "The World in Brief")
 
     def test_categories_for_interactive_section_url(self):
         self.assertEqual(
