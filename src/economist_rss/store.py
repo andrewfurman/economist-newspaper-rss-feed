@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
 from pathlib import Path
 import sqlite3
 from typing import Iterable
@@ -20,6 +21,7 @@ class StoredArticle:
     published: str | None
     published_at: str | None
     source: str | None
+    categories: list[str]
     content_html: str | None
     content_text: str | None
     content_source: str | None
@@ -70,10 +72,10 @@ class ArticleStore:
         self.conn.execute(
             """
             insert into articles (
-              canonical_url, url, guid, title, summary, published, source,
+              canonical_url, url, guid, title, summary, published, source, categories,
               published_at, first_seen_at, updated_at, attempt_count
             )
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             on conflict(canonical_url) do update set
               url = excluded.url,
               guid = coalesce(nullif(excluded.guid, ''), articles.guid),
@@ -82,6 +84,10 @@ class ArticleStore:
               published = excluded.published,
               published_at = excluded.published_at,
               source = excluded.source,
+              categories = case
+                when excluded.categories != '[]' then excluded.categories
+                else articles.categories
+              end,
               updated_at = excluded.updated_at
             """,
             (
@@ -92,6 +98,7 @@ class ArticleStore:
                 item.summary,
                 item.published,
                 item.source,
+                _encode_categories(item.categories),
                 normalized_datetime(item.published),
                 timestamp,
                 timestamp,
@@ -238,6 +245,7 @@ class ArticleStore:
                 summary=row["summary"],
                 content_html=row["content_html"],
                 source=row["source"],
+                categories=_decode_categories(row["categories"]),
             )
             for row in rows
         ]
@@ -263,6 +271,7 @@ class ArticleStore:
               published text,
               published_at text,
               source text,
+              categories text,
               content_html text,
               content_text text,
               content_source text,
@@ -278,6 +287,7 @@ class ArticleStore:
         )
         self.conn.execute("create index if not exists idx_articles_published on articles(published)")
         _ensure_column(self.conn, "articles", "published_at", "text")
+        _ensure_column(self.conn, "articles", "categories", "text")
         _backfill_published_at(self.conn)
         self.conn.execute(
             "create index if not exists idx_articles_published_at on articles(published_at)"
@@ -303,6 +313,34 @@ def _needs_fetch(article: StoredArticle, retry_failed_after_seconds: float) -> b
     return elapsed >= backoff
 
 
+def _encode_categories(categories: Iterable[str]) -> str:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for category in categories:
+        normalized = category.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(normalized)
+    return json.dumps(unique, ensure_ascii=False)
+
+
+def _decode_categories(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(decoded, list):
+        return []
+    return [
+        category.strip()
+        for category in decoded
+        if isinstance(category, str) and category.strip()
+    ]
+
+
 def _is_recent_article(article: StoredArticle, published_after: datetime) -> bool:
     published = parse_datetime(article.published_at or article.published)
     return published is None or published >= published_after
@@ -318,6 +356,7 @@ def _row_to_article(row: sqlite3.Row) -> StoredArticle:
         published=row["published"],
         published_at=row["published_at"],
         source=row["source"],
+        categories=_decode_categories(row["categories"]),
         content_html=row["content_html"],
         content_text=row["content_text"],
         content_source=row["content_source"],

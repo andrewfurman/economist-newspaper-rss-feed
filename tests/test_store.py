@@ -3,8 +3,9 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
-from economist_rss.feed import FeedItem
+from economist_rss.feed import FeedItem, build_rss
 from economist_rss.store import ArticleStore
 
 
@@ -140,6 +141,87 @@ class ArticleStoreTests(unittest.TestCase):
                 self.assertEqual(len(store.feed_items(limit=2)), 2)
                 self.assertEqual(len(store.feed_items(limit=None)), 3)
                 self.assertEqual(store.feed_items(limit=0), [])
+
+    def test_feed_items_preserve_sourced_categories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                article = store.upsert_feed_item(
+                    FeedItem(
+                        title="Story",
+                        link="https://www.economist.com/essay/2026/06/23/story",
+                        guid="story",
+                        categories=["Essay", "Special coverage", "Essay", ""],
+                    )
+                )
+                store.save_article_content(
+                    article,
+                    content_html="<p>Full text</p>",
+                    content_text="Full text",
+                    content_source="test",
+                )
+
+                items = store.feed_items(limit=10)
+
+                self.assertEqual(items[0].categories, ["Essay", "Special coverage"])
+                output = build_rss(items)
+                root = ET.fromstring(output)
+                categories = [category.text for category in root.findall(".//category")]
+                self.assertEqual(categories, ["Essay", "Special coverage"])
+
+    def test_empty_category_update_does_not_erase_sourced_categories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="Original",
+                        link="https://www.economist.com/asia/2026/06/23/story",
+                        guid="story",
+                        categories=["Asia"],
+                    )
+                )
+                article = store.upsert_feed_item(
+                    FeedItem(
+                        title="Updated",
+                        link="https://www.economist.com/asia/2026/06/23/story",
+                        guid="story",
+                    )
+                )
+                store.save_article_content(
+                    article,
+                    content_html="<p>Full text</p>",
+                    content_text="Full text",
+                    content_source="test",
+                )
+
+                items = store.feed_items(limit=10)
+
+                self.assertEqual(items[0].title, "Updated")
+                self.assertEqual(items[0].categories, ["Asia"])
+
+    def test_feed_items_use_url_category_when_no_sourced_category_exists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                article = store.upsert_feed_item(
+                    FeedItem(
+                        title="Story",
+                        link="https://www.economist.com/asia/2026/06/23/story",
+                        guid="story",
+                    )
+                )
+                store.save_article_content(
+                    article,
+                    content_html="<p>Full text</p>",
+                    content_text="Full text",
+                    content_source="test",
+                )
+
+                output = build_rss(store.feed_items(limit=10))
+                root = ET.fromstring(output)
+                categories = [category.text for category in root.findall(".//category")]
+                self.assertEqual(categories, ["Asia"])
 
     def test_pending_articles_are_sorted_by_normalized_published_time(self):
         with tempfile.TemporaryDirectory() as directory:
