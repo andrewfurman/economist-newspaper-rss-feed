@@ -5,6 +5,8 @@ from economist_rss.feed import (
     CONTENT_NS,
     FeedItem,
     build_rss,
+    categories_for_item,
+    categories_for_title,
     categories_for_url,
     parse_feed,
 )
@@ -94,6 +96,34 @@ class FeedTests(unittest.TestCase):
         categories = [category.text for category in root.findall(".//category")]
 
         self.assertEqual(categories, ["Companies", "Business"])
+
+    def test_us_in_brief_adds_united_states_category(self):
+        item = FeedItem(
+            title="The US in Brief: A big night for Zohran Mamdani",
+            link=(
+                "https://www.economist.com/in-brief/2026/06/24/"
+                "the-us-in-brief-a-big-night-for-zohran-mamdani"
+            ),
+            guid="story-1",
+        )
+
+        self.assertEqual(categories_for_item(item), ["In Brief", "United States"])
+
+    def test_world_in_brief_title_adds_world_in_brief_category(self):
+        self.assertEqual(
+            categories_for_title("The World in Brief"),
+            ["The World in Brief"],
+        )
+
+    def test_title_categories_accept_common_in_brief_variants(self):
+        self.assertEqual(
+            categories_for_title("United States in Brief: Primary night"),
+            ["United States"],
+        )
+        self.assertEqual(
+            categories_for_title("World in Brief: Wednesday update"),
+            ["The World in Brief"],
+        )
 
     def test_categories_for_interactive_section_url(self):
         self.assertEqual(

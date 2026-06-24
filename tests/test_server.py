@@ -1,7 +1,12 @@
 import os
 import unittest
 
-from economist_rss.server import _authorized
+from economist_rss.feed import FeedItem
+from economist_rss.server import (
+    _authorized,
+    _category_filters,
+    _filter_items_by_category,
+)
 
 
 class ServerAuthTests(unittest.TestCase):
@@ -47,6 +52,40 @@ class ServerAuthTests(unittest.TestCase):
                 os.environ.pop("ECONOMIST_FEED_TOKEN", None)
             else:
                 os.environ["ECONOMIST_FEED_TOKEN"] = old_value
+
+
+class ServerCategoryFilterTests(unittest.TestCase):
+    def test_category_filters_accept_repeated_and_comma_separated_values(self):
+        self.assertEqual(
+            _category_filters(
+                "token=secret&category=United+States&category=Business,Culture"
+            ),
+            ["United States", "Business", "Culture"],
+        )
+
+    def test_filter_items_by_derived_category(self):
+        items = [
+            FeedItem(
+                title="The US in Brief: A big night for Zohran Mamdani",
+                link=(
+                    "https://www.economist.com/in-brief/2026/06/24/"
+                    "the-us-in-brief-a-big-night-for-zohran-mamdani"
+                ),
+                guid="us-in-brief",
+            ),
+            FeedItem(
+                title="Electronics can now be printed onto living tissues",
+                link=(
+                    "https://www.economist.com/science-and-technology/2026/06/24/"
+                    "electronics-can-now-be-printed-onto-living-tissues"
+                ),
+                guid="science",
+            ),
+        ]
+
+        filtered = _filter_items_by_category(items, ["United States"])
+
+        self.assertEqual([item.guid for item in filtered], ["us-in-brief"])
 
 
 if __name__ == "__main__":

@@ -209,7 +209,32 @@ FORMAT_CATEGORIES = {
 def categories_for_item(item: FeedItem) -> list[str]:
     categories = list(item.categories)
     categories.extend(categories_for_url(item.link))
+    categories.extend(categories_for_title(item.title))
     return _unique_nonempty(categories)
+
+
+def categories_for_title(title: str) -> list[str]:
+    normalized = " ".join(title.casefold().split())
+    if any(
+        _title_matches_prefix(normalized, prefix)
+        for prefix in (
+            "the us in brief",
+            "us in brief",
+            "the united states in brief",
+            "united states in brief",
+        )
+    ):
+        return ["United States"]
+    if any(
+        _title_matches_prefix(normalized, prefix)
+        for prefix in ("the world in brief", "world in brief")
+    ):
+        return ["The World in Brief"]
+    return []
+
+
+def _title_matches_prefix(title: str, prefix: str) -> bool:
+    return title == prefix or title.startswith(f"{prefix}:")
 
 
 def categories_for_url(url: str) -> list[str]:
