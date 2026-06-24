@@ -1,10 +1,10 @@
 [Unit]
-Description=Refresh private Economist full-text RSS cache every 10 minutes
+Description=Refresh private Economist full-text RSS cache every 5 minutes
 
 [Timer]
-OnBootSec=10min
-OnUnitActiveSec=10min
-RandomizedDelaySec=2min
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=1min
 Persistent=true
 Unit=economist-rss-refresh.service
 

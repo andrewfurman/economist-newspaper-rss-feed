@@ -42,7 +42,7 @@ In `/etc/economist-rss/feeds.toml`, use persistent data paths:
 ```toml
 output_path = "/var/lib/economist-rss/economist-fulltext.xml"
 database_path = "/var/lib/economist-rss/economist-rss.sqlite3"
-refresh_interval_seconds = 600
+refresh_interval_seconds = 300
 article_lookback_days = 30
 max_articles_per_refresh = 2
 exclude_url_patterns = []
@@ -93,10 +93,12 @@ journalctl -u economist-rss-refresh.service -n 100
 journalctl -u economist-rss-refresh.service --since "24 hours ago" | grep 'article_fetch'
 ```
 
-The refresh timer runs every 10 minutes and the scheduled service does not use
+The refresh timer runs every 5 minutes and the scheduled service does not use
 `--force`, so failed or rate-limited articles remain subject to backoff. The
 World in Brief special fetch runs at most once per hour. Use manual forced
-refreshes only for deliberate one-off debugging.
+refreshes only for deliberate one-off debugging. If the logs show new HTTP
+`403`, HTTP `429`, or Cloudflare challenge responses, reduce
+`max_articles_per_refresh` to `1` or restore a 10-minute timer.
 
 Back up `/var/lib/economist-rss`, not just the repository. That directory holds
 the SQLite article cache and browser session state.
