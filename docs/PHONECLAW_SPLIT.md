@@ -38,7 +38,7 @@ database-backed setting:
     "feed_url": "https://private.example.com/economist/rss.xml",
     "refresh_url": "https://private.example.com/economist/refresh",
     "refresh_token_env": "ECONOMIST_REFRESH_TOKEN",
-    "refresh_ttl_seconds": 3600,
+    "refresh_ttl_seconds": 600,
     "enabled": true
   },
   {
@@ -102,10 +102,10 @@ Refresh should be debounce/cache-first:
 For the Economist specifically, the separate Economist RSS server should handle
 article-level throttling and caching:
 
-- default refresh interval: one hour;
+- default refresh interval: 10 minutes;
 - sequential full article fetches only;
 - randomized 75-180 second delay between article fetches;
-- maximum 12 new article fetches per refresh;
+- maximum two new article fetches per 10-minute refresh;
 - never download the same successfully cached article twice;
 - exponential retry delay for failed article fetches;
 - persistent SQLite cache on the separate EC2 instance.

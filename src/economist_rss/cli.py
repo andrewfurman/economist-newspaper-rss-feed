@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from pathlib import Path
 import sys
@@ -23,6 +24,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.env_file:
         load_env_file(args.env_file)
+    _configure_logging()
 
     try:
         config = load_config(args.config)
@@ -251,4 +253,13 @@ def _print_summary(summary: object) -> None:
             f"{f', stopped={summary.stop_reason}' if summary.stop_reason else ''}"
         ),
         file=sys.stderr,
+    )
+
+
+def _configure_logging() -> None:
+    level_name = os.environ.get("ECONOMIST_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )

@@ -31,22 +31,23 @@ Relevant references:
 Use these defaults in production:
 
 ```toml
-refresh_interval_seconds = 3600
+refresh_interval_seconds = 600
 article_lookback_days = 7
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
-max_articles_per_refresh = 12
+max_articles_per_refresh = 2
 retry_failed_after_seconds = 21600
 ```
 
 This means:
 
 - RSS readers can poll the private feed often, but upstream Economist refreshes
-  happen at most every hour.
+  happen at most every 10 minutes.
 - Discovery is limited to configured RSS items published in the last seven
   days.
 - New article fetches happen sequentially.
-- A normal refresh takes a slow drip approach instead of a burst.
+- A normal refresh fetches at most two article bodies.
+- The normal scheduled ceiling is 12 article-page fetches per hour.
 - Successfully cached articles are not downloaded again.
 - Failed articles wait at least six hours before retry, multiplied by the
   attempt count.
@@ -67,10 +68,10 @@ The refresh code treats these as stop signs:
 - RSS-Bridge-style placeholders such as `resulted in 403 Forbidden`
 
 When a stop sign appears, the service records the article error, writes
-`last_refresh_stop_reason`, and exits the current refresh batch. A later hourly
-refresh can retry after the configured backoff window. This is intentionally
-slower than a catch-up loop because avoiding rate limits is more important than
-populating every article immediately.
+`last_refresh_stop_reason`, and exits the current refresh batch. A later
+scheduled refresh can retry after the configured backoff window. This is
+intentionally slower than a catch-up loop because avoiding rate limits is more
+important than populating every article immediately.
 
 Manual backfills should stay one-at-a-time and sequential. Do not run parallel
 refresh processes, tight `--force` loops, or multiple hosts against the same
@@ -89,7 +90,48 @@ The server therefore separates reading from refreshing:
 - `GET /rss.xml` also triggers refresh only when the cache is stale.
 - `POST /refresh` can force a refresh when protected by
   `ECONOMIST_REFRESH_TOKEN`.
-- A systemd timer can refresh every hour independent of reader behavior.
+- A systemd timer can refresh every 10 minutes independent of reader behavior.
+
+## Fetch Telemetry
+
+Every article fetch attempt logs two structured events to stdout/stderr, which
+systemd captures in journald:
+
+- `article_fetch_start`
+- `article_fetch_result`
+
+Each event includes:
+
+- `run_id`
+- `queue_index` and `queue_size`
+- `title`
+- `url` and `canonical_url`
+- `attempt_count_before`
+- `status`
+- `source`
+- `http_status`
+- `retry_after_seconds`
+- `elapsed_ms`
+- `stop_refresh`
+- `stop_reason`
+
+Use these logs to estimate the practical rate limit over time:
+
+```bash
+journalctl -u economist-rss-refresh.service --since "24 hours ago" \
+  | grep 'article_fetch'
+```
+
+To inspect only rate-limit and challenge signals:
+
+```bash
+journalctl -u economist-rss-refresh.service --since "7 days ago" \
+  | grep 'article_fetch' \
+  | grep -E '"status":"rate_limited"|"http_status":403|"http_status":429|"cloudflare"'
+```
+
+These logs intentionally do not include credentials, feed tokens, browser state,
+or article body text.
 
 ## Backoff Behavior
 

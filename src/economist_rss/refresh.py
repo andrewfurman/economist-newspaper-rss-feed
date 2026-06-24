@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
+import logging
 from pathlib import Path
 import random
 import time
@@ -14,6 +16,9 @@ from .feed import FeedItem, parse_feed
 from .fetch import FetchError, Fetcher
 from .store import ArticleStore, StoredArticle
 from .util import cutoff_datetime, now_iso, parse_datetime
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -31,6 +36,11 @@ class RefreshSummary:
 class ArticleFetchResult:
     content: ArticleContent | None = None
     source: str = ""
+    status: str = ""
+    message: str = ""
+    http_status: int | None = None
+    retry_after_seconds: int | None = None
+    final_url: str = ""
     stop_refresh: bool = False
     stop_reason: str = ""
 
@@ -67,6 +77,7 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
     articles_failed = 0
     stop_reason = ""
     published_after = cutoff_datetime(config.article_lookback_days)
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     store.set_state("last_refresh_stop_reason", "")
 
     for feed_config in config.feeds:
@@ -100,6 +111,16 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
     )
 
     for index, article in enumerate(candidates):
+        started_at = time.monotonic()
+        _log_article_fetch(
+            "article_fetch_start",
+            article,
+            run_id=run_id,
+            queue_index=index + 1,
+            queue_size=len(candidates),
+            force=force,
+            attempt_count_before=article.attempt_count,
+        )
         result = _fetch_article(store, article, fetcher, config)
         if result.content:
             store.save_article_content(
@@ -114,7 +135,28 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
             if result.stop_refresh:
                 stop_reason = result.stop_reason
                 store.set_state("last_refresh_stop_reason", result.stop_reason)
-                break
+
+        _log_article_fetch(
+            "article_fetch_result",
+            article,
+            run_id=run_id,
+            queue_index=index + 1,
+            queue_size=len(candidates),
+            force=force,
+            attempt_count_before=article.attempt_count,
+            elapsed_ms=int((time.monotonic() - started_at) * 1000),
+            status=result.status or ("ok" if result.content else "unknown"),
+            source=result.source,
+            http_status=result.http_status,
+            retry_after_seconds=result.retry_after_seconds,
+            final_url=result.final_url,
+            stop_refresh=result.stop_refresh,
+            stop_reason=result.stop_reason,
+            message=result.message,
+        )
+
+        if result.stop_refresh:
+            break
 
         if index < len(candidates) - 1 and not result.stop_refresh:
             _polite_delay(config)
@@ -142,6 +184,10 @@ def _fetch_article(
             return ArticleFetchResult(
                 content=browser_result.article,
                 source="economist_browser_fetch",
+                status="ok",
+                message=browser_result.message,
+                http_status=browser_result.http_status,
+                final_url=browser_result.final_url,
             )
         store.mark_fetch_error(
             article,
@@ -149,6 +195,10 @@ def _fetch_article(
             error=browser_result.message,
         )
         return ArticleFetchResult(
+            status=browser_result.status,
+            message=browser_result.message,
+            http_status=browser_result.http_status,
+            final_url=browser_result.final_url,
             stop_refresh=_is_refresh_stop_status(browser_result.status),
             stop_reason=(
                 f"Stopped refresh after browser fetch returned "
@@ -162,6 +212,10 @@ def _fetch_article(
         status = "rate_limited" if exc.status_code in {403, 429} else "fetch_failed"
         store.mark_fetch_error(article, status=status, error=str(exc))
         return ArticleFetchResult(
+            status=status,
+            message=str(exc),
+            http_status=exc.status_code,
+            retry_after_seconds=exc.retry_after_seconds,
             stop_refresh=status == "rate_limited",
             stop_reason=f"Stopped refresh after HTTP {exc.status_code} for {article.url}",
         )
@@ -173,6 +227,10 @@ def _fetch_article(
             error="The article response was a Cloudflare challenge page.",
         )
         return ArticleFetchResult(
+            status="cloudflare_challenge",
+            message="The article response was a Cloudflare challenge page.",
+            http_status=response.status,
+            final_url=response.url,
             stop_refresh=True,
             stop_reason=f"Stopped refresh after Cloudflare challenge for {article.url}",
         )
@@ -185,10 +243,21 @@ def _fetch_article(
             error="The article page did not expose full subscriber text.",
         )
         return ArticleFetchResult(
+            status="excerpt_or_login_required",
+            message="The article page did not expose full subscriber text.",
+            http_status=response.status,
+            final_url=response.url,
             stop_refresh=True,
             stop_reason=f"Stopped refresh after login/excerpt page for {article.url}",
         )
-    return ArticleFetchResult(content=content, source="http_article_fetch")
+    return ArticleFetchResult(
+        content=content,
+        source="http_article_fetch",
+        status="ok",
+        message="Fetched full article text with HTTP.",
+        http_status=response.status,
+        final_url=response.url,
+    )
 
 
 def _is_refresh_stop_status(status: str) -> bool:
@@ -231,6 +300,20 @@ def _polite_delay(config: AppConfig) -> None:
     low = max(0.0, config.min_article_delay_seconds)
     high = max(low, config.max_article_delay_seconds)
     time.sleep(random.uniform(low, high))
+
+
+def _log_article_fetch(event: str, article: StoredArticle, **fields: object) -> None:
+    payload = {
+        "event": event,
+        "title": article.title,
+        "url": article.url,
+        "canonical_url": article.canonical_url,
+        **fields,
+    }
+    LOGGER.info(
+        "article_fetch %s",
+        json.dumps(payload, sort_keys=True, separators=(",", ":")),
+    )
 
 
 @contextmanager

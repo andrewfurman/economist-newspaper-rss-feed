@@ -19,6 +19,7 @@ class BrowserResult:
     message: str
     url: str
     final_url: str
+    http_status: int | None = None
     article: ArticleContent | None = None
 
 
@@ -76,6 +77,7 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
             page.wait_for_timeout(config.browser_wait_ms)
             html = page.content()
             final_url = page.url
+            http_status = response.status if response else 0
             if storage_state:
                 storage_state.parent.mkdir(parents=True, exist_ok=True)
                 context.storage_state(path=str(storage_state))
@@ -87,9 +89,9 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                     message="The browser fetch returned a Cloudflare challenge page.",
                     url=url,
                     final_url=final_url,
+                    http_status=http_status,
                 )
 
-            http_status = response.status if response else 0
             if http_status in {403, 429}:
                 return BrowserResult(
                     ok=False,
@@ -97,6 +99,7 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                     message=f"The browser fetch returned HTTP {http_status}.",
                     url=url,
                     final_url=final_url,
+                    http_status=http_status,
                 )
 
             article = extract_article(html)
@@ -109,6 +112,7 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                     message=f"Only short article text was visible after browser fetch (HTTP {http_status}).",
                     url=url,
                     final_url=final_url,
+                    http_status=http_status,
                     article=article,
                 )
 
@@ -118,6 +122,7 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                 message="Fetched full article text with authenticated browser.",
                 url=url,
                 final_url=final_url,
+                http_status=http_status,
                 article=article,
             )
         except Exception as exc:  # noqa: BLE001 - Playwright wraps browser failures broadly.

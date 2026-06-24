@@ -26,11 +26,11 @@ class AppConfig:
     output_path: str = "dist/economist-fulltext.xml"
     database_path: str = "data/economist-rss.sqlite3"
     timeout_seconds: float = 20.0
-    refresh_interval_seconds: float = 3600.0
+    refresh_interval_seconds: float = 600.0
     article_lookback_days: int | None = 7
     min_article_delay_seconds: float = 75.0
     max_article_delay_seconds: float = 180.0
-    max_articles_per_refresh: int = 12
+    max_articles_per_refresh: int = 2
     retry_failed_after_seconds: float = 21600.0
     user_agent: str = DEFAULT_USER_AGENT
     browser_fetch_enabled: bool = False
@@ -70,11 +70,11 @@ def load_config(path: str | Path) -> AppConfig:
         output_path=_string_value(raw, "output_path", "dist/economist-fulltext.xml"),
         database_path=_string_value(raw, "database_path", "data/economist-rss.sqlite3"),
         timeout_seconds=_float_value(raw, "timeout_seconds", 20.0),
-        refresh_interval_seconds=_float_value(raw, "refresh_interval_seconds", 3600.0),
+        refresh_interval_seconds=_float_value(raw, "refresh_interval_seconds", 600.0),
         article_lookback_days=_optional_int_value(raw, "article_lookback_days", 7),
         min_article_delay_seconds=_float_value(raw, "min_article_delay_seconds", 75.0),
         max_article_delay_seconds=_float_value(raw, "max_article_delay_seconds", 180.0),
-        max_articles_per_refresh=_int_value(raw, "max_articles_per_refresh", 12),
+        max_articles_per_refresh=_int_value(raw, "max_articles_per_refresh", 2),
         retry_failed_after_seconds=_float_value(raw, "retry_failed_after_seconds", 21600.0),
         user_agent=_string_value(raw, "user_agent", DEFAULT_USER_AGENT),
         browser_fetch_enabled=browser_enabled,
