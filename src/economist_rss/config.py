@@ -27,7 +27,7 @@ class AppConfig:
     database_path: str = "data/economist-rss.sqlite3"
     timeout_seconds: float = 20.0
     refresh_interval_seconds: float = 600.0
-    article_lookback_days: int | None = 7
+    article_lookback_days: int | None = 30
     min_article_delay_seconds: float = 75.0
     max_article_delay_seconds: float = 180.0
     max_articles_per_refresh: int = 2
@@ -46,9 +46,10 @@ class AppConfig:
         "https://www.economist.com/culture/2026/06/19/"
         "plot-twist-newsletter-the-art-of-adolescence"
     )
-    exclude_url_patterns: list[str] = field(
-        default_factory=lambda: ["/podcasts/", "/audio-edition-podcast/"]
-    )
+    exclude_url_patterns: list[str] = field(default_factory=list)
+    world_in_brief_enabled: bool = True
+    world_in_brief_url: str = "https://www.economist.com/the-world-in-brief"
+    world_in_brief_refresh_interval_seconds: float = 3600.0
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -71,7 +72,7 @@ def load_config(path: str | Path) -> AppConfig:
         database_path=_string_value(raw, "database_path", "data/economist-rss.sqlite3"),
         timeout_seconds=_float_value(raw, "timeout_seconds", 20.0),
         refresh_interval_seconds=_float_value(raw, "refresh_interval_seconds", 600.0),
-        article_lookback_days=_optional_int_value(raw, "article_lookback_days", 7),
+        article_lookback_days=_optional_int_value(raw, "article_lookback_days", 30),
         min_article_delay_seconds=_float_value(raw, "min_article_delay_seconds", 75.0),
         max_article_delay_seconds=_float_value(raw, "max_article_delay_seconds", 180.0),
         max_articles_per_refresh=_int_value(raw, "max_articles_per_refresh", 2),
@@ -107,8 +108,15 @@ def load_config(path: str | Path) -> AppConfig:
             "https://www.economist.com/culture/2026/06/19/"
             "plot-twist-newsletter-the-art-of-adolescence",
         ),
-        exclude_url_patterns=_string_list_value(
-            raw, "exclude_url_patterns", ["/podcasts/", "/audio-edition-podcast/"]
+        exclude_url_patterns=_string_list_value(raw, "exclude_url_patterns", []),
+        world_in_brief_enabled=_bool_value(raw, "world_in_brief_enabled", True),
+        world_in_brief_url=_string_value(
+            raw,
+            "world_in_brief_url",
+            "https://www.economist.com/the-world-in-brief",
+        ),
+        world_in_brief_refresh_interval_seconds=_float_value(
+            raw, "world_in_brief_refresh_interval_seconds", 3600.0
         ),
     )
 

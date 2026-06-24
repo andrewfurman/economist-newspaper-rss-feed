@@ -198,17 +198,22 @@ def _with_cli_feeds(config: AppConfig, feed_urls: list[str], limit: int | None) 
         max_articles_per_refresh=config.max_articles_per_refresh,
         retry_failed_after_seconds=config.retry_failed_after_seconds,
         user_agent=config.user_agent,
-            browser_fetch_enabled=config.browser_fetch_enabled,
-            browser_headless=config.browser_headless,
-            browser_channel=config.browser_channel,
-            browser_executable_path=config.browser_executable_path,
-            browser_wait_ms=config.browser_wait_ms,
+        browser_fetch_enabled=config.browser_fetch_enabled,
+        browser_headless=config.browser_headless,
+        browser_channel=config.browser_channel,
+        browser_executable_path=config.browser_executable_path,
+        browser_wait_ms=config.browser_wait_ms,
         auth_wait_seconds=config.auth_wait_seconds,
         browser_user_data_dir=config.browser_user_data_dir,
         browser_storage_state=config.browser_storage_state,
         login_url=config.login_url,
         verify_url=config.verify_url,
         exclude_url_patterns=config.exclude_url_patterns,
+        world_in_brief_enabled=config.world_in_brief_enabled,
+        world_in_brief_url=config.world_in_brief_url,
+        world_in_brief_refresh_interval_seconds=(
+            config.world_in_brief_refresh_interval_seconds
+        ),
     )
 
 
@@ -241,6 +246,11 @@ def _with_browser_overrides(
         login_url=config.login_url,
         verify_url=config.verify_url,
         exclude_url_patterns=config.exclude_url_patterns,
+        world_in_brief_enabled=config.world_in_brief_enabled,
+        world_in_brief_url=config.world_in_brief_url,
+        world_in_brief_refresh_interval_seconds=(
+            config.world_in_brief_refresh_interval_seconds
+        ),
     )
 
 

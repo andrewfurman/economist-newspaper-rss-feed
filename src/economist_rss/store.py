@@ -117,6 +117,8 @@ class ArticleStore:
         published_after: datetime | None = None,
         force: bool = False,
     ) -> list[StoredArticle]:
+        if limit <= 0:
+            return []
         rows = self.conn.execute(
             """
             select * from articles

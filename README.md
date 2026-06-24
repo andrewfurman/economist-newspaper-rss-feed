@@ -32,10 +32,19 @@ The service is cache-first.
    bodies.
 
 By default, refreshes are limited to once every 10 minutes, discover articles
-from the last seven days, and fetch at most two new article bodies per refresh.
+from the last 30 days, and fetch at most two new article bodies per refresh.
 That keeps the normal ceiling at 12 article fetches per hour while still
 backfilling incrementally. If your RSS reader asks for `/rss.xml` repeatedly
 within that window, it receives the cached feed without touching The Economist.
+
+The default source list combines `latest/rss.xml` with section feeds because
+`latest/rss.xml` alone is capped at 300 items and may not reach a full 30 days.
+The `In Brief` feed is included, so `The US in Brief` entries are normal RSS
+items. Podcast feed entries are also included as text pages/episode notes; the
+generated RSS does not include audio enclosures. `The World in Brief` is not a
+normal dated RSS item, so the service fetches
+`https://www.economist.com/the-world-in-brief` with the authenticated browser no
+more than once per hour and saves the resolved dated page as a text RSS item.
 
 ## Files
 
@@ -138,11 +147,12 @@ See [docs/EC2_DEPLOYMENT.md](docs/EC2_DEPLOYMENT.md).
 The defaults intentionally behave like a patient human subscriber:
 
 - one feed refresh every 10 minutes
-- latest-feed discovery for articles published in the last seven days
+- latest and section-feed discovery for articles published in the last 30 days
 - one article request at a time
 - randomized 75-180 second delay between article fetches
 - maximum two new article downloads per refresh
 - maximum 12 article-page fetches per hour during normal scheduled operation
+- World in Brief browser refresh at most once per hour
 - no repeat download after an article is successfully cached
 - exponential retry delay for failures
 - stop the current refresh batch when The Economist returns a rate-limit,

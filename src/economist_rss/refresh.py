@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import format_datetime
 import json
 import logging
 from pathlib import Path
 import random
+import re
 import time
 from contextlib import contextmanager
 
@@ -15,10 +17,11 @@ from .extract import ArticleContent, extract_article, is_cloudflare_challenge
 from .feed import FeedItem, parse_feed
 from .fetch import FetchError, Fetcher
 from .store import ArticleStore, StoredArticle
-from .util import cutoff_datetime, now_iso, parse_datetime
+from .util import canonical_url, cutoff_datetime, now_iso, parse_datetime
 
 
 LOGGER = logging.getLogger(__name__)
+WORLD_IN_BRIEF_DATE_RE = re.compile(r"/the-world-in-brief/(\d{4})/(\d{2})/(\d{2})/")
 
 
 @dataclass(frozen=True)
@@ -102,8 +105,27 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
         for item in items:
             store.upsert_feed_item(_normal_feed_item(item))
 
+    fetch_budget = max(0, config.max_articles_per_refresh)
+    used_fetch_budget = 0
+    if fetch_budget > 0:
+        world_result = _refresh_world_in_brief_if_stale(
+            store,
+            config,
+            run_id=run_id,
+            force=force,
+        )
+        if world_result is not None:
+            used_fetch_budget += 1
+            if world_result.content:
+                articles_fetched += 1
+            else:
+                articles_failed += 1
+                if world_result.stop_refresh:
+                    stop_reason = world_result.stop_reason
+                    store.set_state("last_refresh_stop_reason", world_result.stop_reason)
+
     candidates = store.pending_articles(
-        limit=max(0, config.max_articles_per_refresh),
+        limit=0 if stop_reason else max(0, fetch_budget - used_fetch_budget),
         retry_failed_after_seconds=config.retry_failed_after_seconds,
         exclude_url_patterns=config.exclude_url_patterns,
         published_after=published_after,
@@ -260,6 +282,105 @@ def _fetch_article(
     )
 
 
+def _refresh_world_in_brief_if_stale(
+    store: ArticleStore,
+    config: AppConfig,
+    *,
+    run_id: str,
+    force: bool,
+) -> ArticleFetchResult | None:
+    if not config.world_in_brief_enabled or not config.browser_fetch_enabled:
+        return None
+    if (
+        not force
+        and not _state_is_stale(
+            store,
+            "world_in_brief_last_fetch_at",
+            config.world_in_brief_refresh_interval_seconds,
+        )
+    ):
+        return None
+
+    started_at = time.monotonic()
+    url = config.world_in_brief_url
+    _log_fetch_payload(
+        "article_fetch_start",
+        title="The world in brief",
+        url=url,
+        canonical_url=canonical_url(url) or url,
+        run_id=run_id,
+        queue_index=0,
+        queue_size=0,
+        force=force,
+        attempt_count_before=None,
+        special_source="world_in_brief",
+    )
+
+    browser_result = fetch_article_with_browser(url, config)
+    store.set_state("world_in_brief_last_fetch_at", now_iso())
+    if browser_result.ok and browser_result.article is not None:
+        final_url = browser_result.final_url or url
+        item = FeedItem(
+            title=browser_result.article.title or "The world in brief",
+            link=final_url,
+            guid=final_url,
+            summary=_text_summary(browser_result.article.text),
+            published=_published_from_world_in_brief_url(final_url),
+            source="The World in Brief",
+        )
+        stored = store.upsert_feed_item(_normal_feed_item(item))
+        store.save_article_content(
+            stored,
+            content_html=browser_result.article.content_html,
+            content_text=browser_result.article.text,
+            content_source="economist_world_in_brief",
+        )
+        result = ArticleFetchResult(
+            content=browser_result.article,
+            source="economist_world_in_brief",
+            status="ok",
+            message=browser_result.message,
+            http_status=browser_result.http_status,
+            final_url=final_url,
+        )
+    else:
+        store.set_state("world_in_brief_last_error", browser_result.message)
+        result = ArticleFetchResult(
+            status=browser_result.status,
+            message=browser_result.message,
+            http_status=browser_result.http_status,
+            final_url=browser_result.final_url,
+            stop_refresh=_is_refresh_stop_status(browser_result.status),
+            stop_reason=(
+                "Stopped refresh after World in Brief browser fetch returned "
+                f"{browser_result.status} for {url}"
+            ),
+        )
+
+    _log_fetch_payload(
+        "article_fetch_result",
+        title="The world in brief",
+        url=url,
+        canonical_url=canonical_url(url) or url,
+        run_id=run_id,
+        queue_index=0,
+        queue_size=0,
+        force=force,
+        attempt_count_before=None,
+        elapsed_ms=int((time.monotonic() - started_at) * 1000),
+        status=result.status or ("ok" if result.content else "unknown"),
+        source=result.source,
+        http_status=result.http_status,
+        retry_after_seconds=result.retry_after_seconds,
+        final_url=result.final_url,
+        stop_refresh=result.stop_refresh,
+        stop_reason=result.stop_reason,
+        message=result.message,
+        special_source="world_in_brief",
+    )
+    return result
+
+
 def _is_refresh_stop_status(status: str) -> bool:
     return status in {
         "blocked_by_cloudflare",
@@ -270,7 +391,15 @@ def _is_refresh_stop_status(status: str) -> bool:
 
 
 def _is_stale(store: ArticleStore, refresh_interval_seconds: float) -> bool:
-    last_refresh = parse_datetime(store.get_state("last_refresh_at"))
+    return _state_is_stale(store, "last_refresh_at", refresh_interval_seconds)
+
+
+def _state_is_stale(
+    store: ArticleStore,
+    state_key: str,
+    refresh_interval_seconds: float,
+) -> bool:
+    last_refresh = parse_datetime(store.get_state(state_key))
     if last_refresh is None:
         return True
     elapsed = (datetime.now(timezone.utc) - last_refresh).total_seconds()
@@ -303,17 +432,49 @@ def _polite_delay(config: AppConfig) -> None:
 
 
 def _log_article_fetch(event: str, article: StoredArticle, **fields: object) -> None:
+    _log_fetch_payload(
+        event,
+        title=article.title,
+        url=article.url,
+        canonical_url=article.canonical_url,
+        **fields,
+    )
+
+
+def _log_fetch_payload(
+    event: str,
+    *,
+    title: str,
+    url: str,
+    canonical_url: str,
+    **fields: object,
+) -> None:
     payload = {
         "event": event,
-        "title": article.title,
-        "url": article.url,
-        "canonical_url": article.canonical_url,
+        "title": title,
+        "url": url,
+        "canonical_url": canonical_url,
         **fields,
     }
     LOGGER.info(
         "article_fetch %s",
         json.dumps(payload, sort_keys=True, separators=(",", ":")),
     )
+
+
+def _published_from_world_in_brief_url(url: str) -> str | None:
+    match = WORLD_IN_BRIEF_DATE_RE.search(url)
+    if not match:
+        return None
+    year, month, day = (int(part) for part in match.groups())
+    return format_datetime(datetime(year, month, day, tzinfo=timezone.utc))
+
+
+def _text_summary(text: str, *, limit: int = 320) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 1].rstrip() + "..."
 
 
 @contextmanager

@@ -106,6 +106,11 @@ article-level throttling and caching:
 - sequential full article fetches only;
 - randomized 75-180 second delay between article fetches;
 - maximum two new article fetches per 10-minute refresh;
+- default article lookback: 30 days;
+- podcast entries included as text pages or episode notes, without audio
+  enclosures;
+- World in Brief included through the separate Economist RSS server's
+  authenticated browser fetch;
 - never download the same successfully cached article twice;
 - exponential retry delay for failed article fetches;
 - persistent SQLite cache on the separate EC2 instance.

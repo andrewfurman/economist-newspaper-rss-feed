@@ -147,6 +147,27 @@ class ArticleStoreTests(unittest.TestCase):
 
                 self.assertEqual([article.title for article in pending], ["Later", "Earlier"])
 
+    def test_pending_articles_respects_zero_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="Story",
+                        link="https://www.economist.com/finance/2026/06/23/story",
+                        guid="story",
+                    )
+                )
+
+                self.assertEqual(
+                    store.pending_articles(
+                        limit=0,
+                        retry_failed_after_seconds=1,
+                        exclude_url_patterns=[],
+                    ),
+                    [],
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
