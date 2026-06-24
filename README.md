@@ -63,7 +63,9 @@ article bodies. Each item includes the normal RSS fields `title`, `link`,
 `guid`, `pubDate`, `description`, and `source` when available.
 
 Items also include RSS `<category>` elements for section-level filtering in RSS
-readers. Categories are derived from Economist URL paths, for example:
+readers. The service stores upstream RSS/Atom category tags when The Economist
+provides them, then falls back to Economist URL paths when source categories are
+missing. URL fallback examples:
 
 - `https://www.economist.com/finance-and-economics/...` becomes
   `Finance and Economics`
