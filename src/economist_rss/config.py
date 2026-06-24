@@ -39,6 +39,7 @@ class AppConfig:
     browser_channel: str = "chrome"
     browser_executable_path: str = ""
     browser_wait_ms: int = 3000
+    browser_fetch_timeout_seconds: float = 180.0
     auth_wait_seconds: int = 600
     browser_user_data_dir: str = ".cache/economist-browser-profile"
     browser_storage_state: str = ".cache/economist-browser-state.json"
@@ -94,6 +95,9 @@ def load_config(path: str | Path) -> AppConfig:
             _string_value(raw, "browser_executable_path", ""),
         ),
         browser_wait_ms=_int_value(raw, "browser_wait_ms", 3000),
+        browser_fetch_timeout_seconds=_float_value(
+            raw, "browser_fetch_timeout_seconds", 180.0
+        ),
         auth_wait_seconds=_int_value(raw, "auth_wait_seconds", 600),
         browser_user_data_dir=os.environ.get(
             "ECONOMIST_BROWSER_USER_DATA_DIR",

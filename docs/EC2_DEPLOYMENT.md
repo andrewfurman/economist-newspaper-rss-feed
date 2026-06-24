@@ -52,6 +52,7 @@ world_in_brief_refresh_interval_seconds = 3600
 # Leave this empty when copying a Playwright storage_state JSON from another host.
 browser_user_data_dir = ""
 browser_storage_state = "/var/lib/economist-rss/browser-state.json"
+browser_fetch_timeout_seconds = 180
 ```
 
 Authenticate once:
