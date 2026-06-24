@@ -3,13 +3,16 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from threading import Lock
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from .config import AppConfig
-from .feed import FeedItem, build_rss, categories_for_item
+from .feed import FeedItem, build_rss, categories_for_item, category_for_slug
 from .refresh import refresh_if_stale
 from .store import ArticleStore
 from .util import cutoff_datetime
+
+CATEGORY_FEED_PREFIX = "/rss/category/"
+CATEGORY_FEED_SUFFIX = ".xml"
 
 
 class EconomistRssServer:
@@ -28,15 +31,31 @@ class EconomistRssServer:
                 if parsed.path == "/healthz":
                     self._send_text("ok\n", content_type="text/plain")
                     return
-                if parsed.path in {"/", "/rss.xml", "/economist-fulltext.xml"}:
-                    if not _authorized(self.headers.get("Authorization", ""), parsed.query, "ECONOMIST_FEED_TOKEN"):
+                path_category = _category_from_feed_path(parsed.path)
+                if (
+                    parsed.path in {"/", "/rss.xml", "/economist-fulltext.xml"}
+                    or path_category
+                ):
+                    if not _authorized(
+                        self.headers.get("Authorization", ""),
+                        parsed.query,
+                        "ECONOMIST_FEED_TOKEN",
+                    ):
                         self.send_error(401)
                         return
                     with owner.lock:
                         refresh_if_stale(owner.config)
                     with ArticleStore(owner.config.database_path) as store:
                         category_filters = _category_filters(parsed.query)
-                        item_limit = None if category_filters else owner.config.rss_item_limit
+                        if path_category:
+                            category_filters = _unique_casefolded(
+                                [path_category, *category_filters]
+                            )
+                        item_limit = (
+                            None
+                            if category_filters
+                            else owner.config.rss_item_limit
+                        )
                         feed_items = store.feed_items(
                             limit=item_limit,
                             published_after=cutoff_datetime(
@@ -50,8 +69,15 @@ class EconomistRssServer:
                             )
                             if owner.config.rss_item_limit is not None:
                                 feed_items = feed_items[: owner.config.rss_item_limit]
-                        rss = build_rss(feed_items)
-                    self._send_text(rss, content_type="application/rss+xml; charset=utf-8")
+                        rss = build_rss(
+                            feed_items,
+                            title=_rss_title(category_filters),
+                            description=_rss_description(category_filters),
+                        )
+                    self._send_text(
+                        rss,
+                        content_type="application/rss+xml; charset=utf-8",
+                    )
                     return
                 self.send_error(404)
 
@@ -106,6 +132,17 @@ def _authorized(authorization_header: str, query: str, token_env_key: str) -> bo
     return any(token == expected for token in tokens)
 
 
+def _category_from_feed_path(path: str) -> str | None:
+    if not path.startswith(CATEGORY_FEED_PREFIX):
+        return None
+    if not path.endswith(CATEGORY_FEED_SUFFIX):
+        return None
+    slug = path[len(CATEGORY_FEED_PREFIX) : -len(CATEGORY_FEED_SUFFIX)]
+    if not slug:
+        return None
+    return category_for_slug(unquote(slug))
+
+
 def _category_filters(query: str) -> list[str]:
     parsed = parse_qs(query)
     raw_values = [*parsed.get("category", []), *parsed.get("categories", [])]
@@ -142,3 +179,19 @@ def _unique_casefolded(values: list[str]) -> list[str]:
         seen.add(key)
         unique.append(normalized)
     return unique
+
+
+def _rss_title(category_filters: list[str]) -> str:
+    base_title = "The Economist full-text private feed"
+    if not category_filters:
+        return base_title
+    return f"{base_title} - {', '.join(category_filters)}"
+
+
+def _rss_description(category_filters: list[str]) -> str:
+    if not category_filters:
+        return "Private RSS feed generated from authorized article fetches."
+    return (
+        "Private RSS feed generated from authorized article fetches, "
+        f"filtered to: {', '.join(category_filters)}."
+    )

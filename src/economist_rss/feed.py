@@ -205,12 +205,29 @@ FORMAT_CATEGORIES = {
     "interactive": "Interactive",
 }
 
+CATEGORY_SLUG_ALIASES = {
+    "the-us-in-brief": "United States",
+    "us-in-brief": "United States",
+    "the-united-states-in-brief": "United States",
+    "united-states-in-brief": "United States",
+    "world-in-brief": "The World in Brief",
+}
+
 
 def categories_for_item(item: FeedItem) -> list[str]:
     categories = list(item.categories)
     categories.extend(categories_for_url(item.link))
     categories.extend(categories_for_title(item.title))
     return _unique_nonempty(categories)
+
+
+def category_for_slug(slug: str) -> str:
+    normalized = _normalize_category_slug(slug)
+    if normalized in SECTION_CATEGORIES:
+        return SECTION_CATEGORIES[normalized]
+    if normalized in CATEGORY_SLUG_ALIASES:
+        return CATEGORY_SLUG_ALIASES[normalized]
+    return _titleize_slug(normalized)
 
 
 def categories_for_title(title: str) -> list[str]:
@@ -235,6 +252,32 @@ def categories_for_title(title: str) -> list[str]:
 
 def _title_matches_prefix(title: str, prefix: str) -> bool:
     return title == prefix or title.startswith(f"{prefix}:")
+
+
+def _normalize_category_slug(slug: str) -> str:
+    return "-".join(slug.strip().casefold().replace("_", "-").split())
+
+
+def _titleize_slug(slug: str) -> str:
+    lowercase_words = {
+        "and",
+        "as",
+        "at",
+        "by",
+        "for",
+        "in",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+    }
+    words = slug.split("-")
+    titled = [
+        word if index and word in lowercase_words else word.capitalize()
+        for index, word in enumerate(words)
+    ]
+    return " ".join(titled)
 
 
 def categories_for_url(url: str) -> list[str]:

@@ -90,6 +90,14 @@ standard RSS 2.0 output:
 GET /rss.xml?token=long-random-token-for-rss-reader&category=United%20States
 ```
 
+For RSS readers that work better with distinct feed URLs, use the category-feed
+route:
+
+```text
+GET /rss/category/united-states.xml?token=long-random-token-for-rss-reader
+GET /rss/category/the-world-in-brief.xml?token=long-random-token-for-rss-reader
+```
+
 Use repeated `category` parameters or comma-separated values to match any of
 several categories. Matching is case-insensitive and uses the same `<category>`
 values emitted in the RSS items.
@@ -176,6 +184,8 @@ http://127.0.0.1:8080/rss.xml?token=long-random-token-for-rss-reader
 When `ECONOMIST_FEED_TOKEN` is set, `GET /rss.xml` requires either
 `?token=...` in the URL or an `Authorization: Bearer ...` header.
 Add `&category=United%20States` to return only items with that RSS category.
+You can also subscribe directly to
+`/rss/category/united-states.xml?token=...` for a United States-only feed.
 
 ## Refresh Strategy
 
