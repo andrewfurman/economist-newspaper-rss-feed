@@ -43,7 +43,11 @@ In `/etc/economist-rss/feeds.toml`, use persistent data paths:
 output_path = "/var/lib/economist-rss/economist-fulltext.xml"
 database_path = "/var/lib/economist-rss/economist-rss.sqlite3"
 refresh_interval_seconds = 600
+article_lookback_days = 30
 max_articles_per_refresh = 2
+exclude_url_patterns = []
+world_in_brief_enabled = true
+world_in_brief_refresh_interval_seconds = 3600
 # Leave this empty when copying a Playwright storage_state JSON from another host.
 browser_user_data_dir = ""
 browser_storage_state = "/var/lib/economist-rss/browser-state.json"
@@ -90,8 +94,9 @@ journalctl -u economist-rss-refresh.service --since "24 hours ago" | grep 'artic
 ```
 
 The refresh timer runs every 10 minutes and the scheduled service does not use
-`--force`, so failed or rate-limited articles remain subject to backoff. Use
-manual forced refreshes only for deliberate one-off debugging.
+`--force`, so failed or rate-limited articles remain subject to backoff. The
+World in Brief special fetch runs at most once per hour. Use manual forced
+refreshes only for deliberate one-off debugging.
 
 Back up `/var/lib/economist-rss`, not just the repository. That directory holds
 the SQLite article cache and browser session state.

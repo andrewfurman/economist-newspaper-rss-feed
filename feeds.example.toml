@@ -2,7 +2,7 @@ output_path = "dist/economist-fulltext.xml"
 database_path = "data/economist-rss.sqlite3"
 timeout_seconds = 20
 refresh_interval_seconds = 600
-article_lookback_days = 7
+article_lookback_days = 30
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
 max_articles_per_refresh = 2
@@ -18,12 +18,132 @@ browser_user_data_dir = ".cache/economist-browser-profile"
 browser_storage_state = ".cache/economist-browser-state.json"
 login_url = "https://www.economist.com/api/auth/login"
 verify_url = "https://www.economist.com/culture/2026/06/19/plot-twist-newsletter-the-art-of-adolescence"
-exclude_url_patterns = [
-  "/podcasts/",
-  "/audio-edition-podcast/",
-]
+exclude_url_patterns = []
+world_in_brief_enabled = true
+world_in_brief_url = "https://www.economist.com/the-world-in-brief"
+world_in_brief_refresh_interval_seconds = 3600
 
 [[feeds]]
-name = "The Economist"
+name = "Latest"
 url = "https://www.economist.com/latest/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Leaders"
+url = "https://www.economist.com/leaders/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Briefing"
+url = "https://www.economist.com/briefing/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "United States"
+url = "https://www.economist.com/united-states/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "The Americas"
+url = "https://www.economist.com/the-americas/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Asia"
+url = "https://www.economist.com/asia/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "China"
+url = "https://www.economist.com/china/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Middle East and Africa"
+url = "https://www.economist.com/middle-east-and-africa/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Europe"
+url = "https://www.economist.com/europe/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Britain"
+url = "https://www.economist.com/britain/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "International"
+url = "https://www.economist.com/international/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Business"
+url = "https://www.economist.com/business/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Finance and Economics"
+url = "https://www.economist.com/finance-and-economics/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Science and Technology"
+url = "https://www.economist.com/science-and-technology/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Culture"
+url = "https://www.economist.com/culture/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Graphic Detail"
+url = "https://www.economist.com/graphic-detail/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Obituary"
+url = "https://www.economist.com/obituary/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "The World This Week"
+url = "https://www.economist.com/the-world-this-week/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "In Brief"
+url = "https://www.economist.com/in-brief/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Podcasts"
+url = "https://www.economist.com/podcasts/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "1843"
+url = "https://www.economist.com/1843/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Special Report"
+url = "https://www.economist.com/special-report/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "By Invitation"
+url = "https://www.economist.com/by-invitation/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Letters"
+url = "https://www.economist.com/letters/rss.xml"
+limit = 300
+
+[[feeds]]
+name = "Economic and Financial Indicators"
+url = "https://www.economist.com/economic-and-financial-indicators/rss.xml"
 limit = 300

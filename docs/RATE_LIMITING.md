@@ -32,22 +32,26 @@ Use these defaults in production:
 
 ```toml
 refresh_interval_seconds = 600
-article_lookback_days = 7
+article_lookback_days = 30
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
 max_articles_per_refresh = 2
 retry_failed_after_seconds = 21600
+world_in_brief_refresh_interval_seconds = 3600
 ```
 
 This means:
 
 - RSS readers can poll the private feed often, but upstream Economist refreshes
   happen at most every 10 minutes.
-- Discovery is limited to configured RSS items published in the last seven
-  days.
+- Discovery is limited to configured RSS items published in the last 30 days.
+- The default config uses section RSS feeds because `latest/rss.xml` alone is
+  capped at 300 items and may not reach 30 days.
 - New article fetches happen sequentially.
 - A normal refresh fetches at most two article bodies.
 - The normal scheduled ceiling is 12 article-page fetches per hour.
+- The World in Brief special fetch runs at most once per hour and counts
+  against the article-fetch budget.
 - Successfully cached articles are not downloaded again.
 - Failed articles wait at least six hours before retry, multiplied by the
   attempt count.
@@ -132,6 +136,21 @@ journalctl -u economist-rss-refresh.service --since "7 days ago" \
 
 These logs intentionally do not include credentials, feed tokens, browser state,
 or article body text.
+
+## Source Coverage
+
+The default config includes normal article sections, `In Brief`, `Podcasts`,
+and a special World in Brief source.
+
+- `The US in Brief` entries are discovered from
+  `https://www.economist.com/in-brief/rss.xml`.
+- Podcast entries are discovered from
+  `https://www.economist.com/podcasts/rss.xml` and fetched as text pages or
+  episode notes. Audio enclosures are not added to the generated RSS.
+- `The World in Brief` did not appear as a normal dated article item in the RSS
+  feeds checked on June 24, 2026. It is fetched through the authenticated
+  browser from `https://www.economist.com/the-world-in-brief`; the resolved
+  dated page is cached as a text RSS item.
 
 ## Backoff Behavior
 

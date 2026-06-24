@@ -27,6 +27,7 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
     sync_playwright = _sync_playwright()
     storage_state = Path(config.browser_storage_state)
     user_data_dir = Path(config.browser_user_data_dir) if config.browser_user_data_dir else None
+    minimum_text_length = _minimum_text_length_for_url(url)
 
     with sync_playwright() as playwright:
         context = None
@@ -103,9 +104,9 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                 )
 
             article = extract_article(html)
-            if article is None or len(article.text) < 700:
+            if article is None or len(article.text) < minimum_text_length:
                 article = _extract_rendered_article(page)
-            if article is None or len(article.text) < 700:
+            if article is None or len(article.text) < minimum_text_length:
                 return BrowserResult(
                     ok=False,
                     status="excerpt_or_login_required",
@@ -138,6 +139,12 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                 context.close()
             if browser is not None:
                 browser.close()
+
+
+def _minimum_text_length_for_url(url: str) -> int:
+    if "/podcasts/" in url or "/audio/podcasts/" in url:
+        return 100
+    return 700
 
 
 def authenticate_browser(config: AppConfig, *, manual_login: bool = False) -> BrowserResult:
