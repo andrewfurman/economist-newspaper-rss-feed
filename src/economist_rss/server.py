@@ -37,6 +37,7 @@ class EconomistRssServer:
                     with ArticleStore(owner.config.database_path) as store:
                         rss = build_rss(
                             store.feed_items(
+                                limit=owner.config.rss_item_limit,
                                 published_after=cutoff_datetime(
                                     owner.config.article_lookback_days
                                 )

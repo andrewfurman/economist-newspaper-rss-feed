@@ -25,6 +25,7 @@ class AppConfig:
     feeds: list[FeedConfig] = field(default_factory=list)
     output_path: str = "dist/economist-fulltext.xml"
     database_path: str = "data/economist-rss.sqlite3"
+    rss_item_limit: int | None = 500
     timeout_seconds: float = 20.0
     refresh_interval_seconds: float = 300.0
     article_lookback_days: int | None = 30
@@ -70,6 +71,7 @@ def load_config(path: str | Path) -> AppConfig:
         feeds=feeds,
         output_path=_string_value(raw, "output_path", "dist/economist-fulltext.xml"),
         database_path=_string_value(raw, "database_path", "data/economist-rss.sqlite3"),
+        rss_item_limit=_optional_int_value(raw, "rss_item_limit", 500),
         timeout_seconds=_float_value(raw, "timeout_seconds", 20.0),
         refresh_interval_seconds=_float_value(raw, "refresh_interval_seconds", 300.0),
         article_lookback_days=_optional_int_value(raw, "article_lookback_days", 30),
