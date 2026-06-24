@@ -50,7 +50,11 @@ def main(argv: list[str] | None = None) -> int:
         if not config.feeds:
             print("No feeds configured. Add feeds.toml or pass --feed-url.", file=sys.stderr)
             return 2
-        summary = refresh_if_stale(config, force=args.force)
+        summary = refresh_if_stale(
+            config,
+            force=args.force,
+            ignore_refresh_interval=args.ignore_refresh_interval,
+        )
         _print_summary(summary)
         return 0 if summary.status in {"ok", "skipped"} else 1
 
@@ -70,7 +74,11 @@ def main(argv: list[str] | None = None) -> int:
 
     output_path = Path(args.output or config.output_path)
     if not args.no_refresh:
-        summary = refresh_if_stale(config, force=args.force)
+        summary = refresh_if_stale(
+            config,
+            force=args.force,
+            ignore_refresh_interval=args.ignore_refresh_interval,
+        )
         _print_summary(summary)
 
     with ArticleStore(config.database_path) as store:
@@ -136,6 +144,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Refresh even if refresh_interval_seconds has not elapsed.",
+    )
+    parser.add_argument(
+        "--ignore-refresh-interval",
+        action="store_true",
+        help=(
+            "Bypass only the cache-age interval. Failed article retry backoff still "
+            "applies. Intended for the scheduled systemd refresh timer."
+        ),
     )
     parser.add_argument(
         "--no-refresh",

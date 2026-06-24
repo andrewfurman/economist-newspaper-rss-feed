@@ -48,7 +48,12 @@ class ArticleFetchResult:
     stop_reason: str = ""
 
 
-def refresh_if_stale(config: AppConfig, *, force: bool = False) -> RefreshSummary:
+def refresh_if_stale(
+    config: AppConfig,
+    *,
+    force: bool = False,
+    ignore_refresh_interval: bool = False,
+) -> RefreshSummary:
     with _refresh_lock(config.database_path) as lock_acquired:
         if not lock_acquired:
             return RefreshSummary(
@@ -60,7 +65,11 @@ def refresh_if_stale(config: AppConfig, *, force: bool = False) -> RefreshSummar
                 skipped_reason="refresh_already_running",
             )
         with ArticleStore(config.database_path) as store:
-            if not force and not _is_stale(store, config.refresh_interval_seconds):
+            if (
+                not force
+                and not ignore_refresh_interval
+                and not _is_stale(store, config.refresh_interval_seconds)
+            ):
                 return RefreshSummary(
                     status="skipped",
                     feeds_checked=0,
