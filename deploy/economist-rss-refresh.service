@@ -7,6 +7,6 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/opt/economist-newspaper-rss-feed
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/economist-newspaper-rss-feed/.venv/bin/economist-rss refresh --env-file /etc/economist-rss/real.env --config /etc/economist-rss/feeds.toml
+ExecStart=/opt/economist-newspaper-rss-feed/.venv/bin/economist-rss refresh --env-file /etc/economist-rss/real.env --config /etc/economist-rss/feeds.toml --ignore-refresh-interval
 NoNewPrivileges=true
 PrivateTmp=true

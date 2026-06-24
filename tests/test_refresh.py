@@ -7,8 +7,10 @@ from economist_rss.browser import BrowserResult
 from economist_rss.config import AppConfig, FeedConfig
 from economist_rss.extract import ArticleContent
 from economist_rss.fetch import FetchError, FetchResponse
-from economist_rss.refresh import refresh
+from economist_rss.feed import FeedItem
+from economist_rss.refresh import refresh, refresh_if_stale
 from economist_rss.store import ArticleStore
+from economist_rss.util import now_iso
 
 
 class RefreshRateLimitTests(unittest.TestCase):
@@ -164,6 +166,80 @@ class RefreshRateLimitTests(unittest.TestCase):
                 )
                 self.assertEqual(payloads[1]["special_source"], "world_in_brief")
                 self.assertEqual(payloads[1]["status"], "ok")
+
+    def test_ignore_refresh_interval_keeps_failed_article_backoff(self):
+        feed_url = "https://www.economist.com/latest/rss.xml"
+        article_url = "https://www.economist.com/finance/2026/06/23/first"
+        rss = f"""
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>First</title>
+              <link>{article_url}</link>
+              <guid>first</guid>
+              <pubDate>Tue, 23 Jun 2026 10:00:00 +0000</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """
+        calls = []
+
+        class FakeFetcher:
+            def __init__(self, **_kwargs):
+                pass
+
+            def fetch_text(self, url):
+                calls.append(url)
+                if url == feed_url:
+                    return FetchResponse(
+                        url=url,
+                        status=200,
+                        text=rss,
+                        content_type="application/rss+xml",
+                        headers={},
+                    )
+                raise AssertionError(f"unexpected article fetch: {url}")
+
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "articles.sqlite3"
+            config = AppConfig(
+                feeds=[FeedConfig(name="The Economist", url=feed_url)],
+                database_path=str(database_path),
+                refresh_interval_seconds=300,
+                max_articles_per_refresh=1,
+                retry_failed_after_seconds=999999,
+                min_article_delay_seconds=0,
+                max_article_delay_seconds=0,
+                browser_fetch_enabled=False,
+            )
+            with ArticleStore(database_path) as store:
+                stored = store.upsert_feed_item(
+                    FeedItem(
+                        title="First",
+                        link=article_url,
+                        guid="first",
+                        published="Tue, 23 Jun 2026 10:00:00 +0000",
+                        source="The Economist",
+                    )
+                )
+                store.mark_fetch_error(stored, status="rate_limited", error="HTTP 403")
+                store.set_state("last_refresh_at", now_iso())
+
+            import economist_rss.refresh as refresh_module
+
+            original_fetcher = refresh_module.Fetcher
+            refresh_module.Fetcher = FakeFetcher
+            try:
+                summary = refresh_if_stale(config, ignore_refresh_interval=True)
+            finally:
+                refresh_module.Fetcher = original_fetcher
+
+            self.assertEqual(summary.status, "ok")
+            self.assertEqual(summary.feeds_checked, 1)
+            self.assertEqual(summary.feed_items_seen, 1)
+            self.assertEqual(summary.articles_fetched, 0)
+            self.assertEqual(summary.articles_failed, 0)
+            self.assertEqual(calls, [feed_url])
 
 
 if __name__ == "__main__":

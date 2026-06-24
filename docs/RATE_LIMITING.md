@@ -43,13 +43,16 @@ world_in_brief_refresh_interval_seconds = 3600
 This means:
 
 - RSS readers can poll the private feed often, but upstream Economist refreshes
-  happen at most every 5 minutes.
+  from reader requests happen only after the 5-minute freshness guard elapses.
+- The systemd timer runs the scheduled refresh with
+  `--ignore-refresh-interval`, so each 5-minute timer tick can attempt a small
+  backfill batch without using `--force`.
 - Discovery is limited to configured RSS items published in the last 30 days.
 - The default config uses section RSS feeds because `latest/rss.xml` alone is
   capped at 300 items and may not reach 30 days.
 - New article fetches happen sequentially.
 - A normal refresh fetches at most two article bodies.
-- The normal scheduled trial ceiling is 24 article-page fetches per hour.
+- The normal scheduled trial ceiling is about 24 article-page fetches per hour.
 - The World in Brief special fetch runs at most once per hour and counts
   against the article-fetch budget.
 - Successfully cached articles are not downloaded again.
@@ -81,10 +84,11 @@ Manual backfills should stay one-at-a-time and sequential. Do not run parallel
 refresh processes, tight `--force` loops, or multiple hosts against the same
 Economist account.
 
-The 5-minute/two-article setting is intentionally a monitored trial. If
-telemetry shows HTTP `403`, HTTP `429`, Cloudflare challenges, or repeated
-excerpt/login responses, reduce `max_articles_per_refresh` to `1` or restore a
-10-minute timer.
+The 5-minute/two-article setting is intentionally a monitored trial. The
+scheduled service should use `--ignore-refresh-interval`, not `--force`, because
+`--force` also bypasses failed-article retry backoff. If telemetry shows HTTP
+`403`, HTTP `429`, Cloudflare challenges, or repeated excerpt/login responses,
+reduce `max_articles_per_refresh` to `1` or restore a 10-minute timer.
 
 ## Why Not Fetch On Every RSS Request?
 
@@ -99,7 +103,8 @@ The server therefore separates reading from refreshing:
 - `GET /rss.xml` also triggers refresh only when the cache is stale.
 - `POST /refresh` can force a refresh when protected by
   `ECONOMIST_REFRESH_TOKEN`.
-- A systemd timer can refresh every 5 minutes independent of reader behavior.
+- A systemd timer can refresh every 5 minutes independent of reader behavior
+  with `--ignore-refresh-interval`.
 
 ## Fetch Telemetry
 
