@@ -27,7 +27,7 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
     sync_playwright = _sync_playwright()
     storage_state = Path(config.browser_storage_state)
     user_data_dir = Path(config.browser_user_data_dir) if config.browser_user_data_dir else None
-    minimum_text_length = _minimum_text_length_for_url(url)
+    minimum_text_length = minimum_text_length_for_url(url)
 
     with sync_playwright() as playwright:
         context = None
@@ -141,8 +141,10 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                 browser.close()
 
 
-def _minimum_text_length_for_url(url: str) -> int:
+def minimum_text_length_for_url(url: str) -> int:
     if "/podcasts/" in url or "/audio/podcasts/" in url:
+        return 100
+    if "/economic-and-financial-indicators/" in url:
         return 100
     return 700
 
