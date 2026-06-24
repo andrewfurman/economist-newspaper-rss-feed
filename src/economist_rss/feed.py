@@ -216,7 +216,7 @@ def categories_for_url(url: str) -> list[str]:
     path_parts = [
         part
         for part in urlparse(url).path.split("/")
-        if part and not part.isdigit()
+        if part and (not part.isdigit() or part in SECTION_CATEGORIES)
     ]
     if not path_parts:
         return []
