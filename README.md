@@ -102,6 +102,12 @@ Use repeated `category` parameters or comma-separated values to match any of
 several categories. Matching is case-insensitive and uses the same `<category>`
 values emitted in the RSS items.
 
+The default `/rss.xml` response is standard RSS 2.0. The optional HTTP
+category-filtering interface (`category=...` and `/rss/category/*.xml`) is the
+project's intentional extension beyond RSS 2.0, added so other projects and RSS
+readers can subscribe to section-specific feeds. The filtered responses
+themselves are still standard RSS 2.0 documents.
+
 ## Files
 
 - `sample.env`: tracked example of required environment variables.
