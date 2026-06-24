@@ -31,7 +31,7 @@ class AppConfig:
     article_lookback_days: int | None = 30
     min_article_delay_seconds: float = 75.0
     max_article_delay_seconds: float = 180.0
-    max_articles_per_refresh: int = 3
+    max_articles_per_refresh: int = 5
     retry_failed_after_seconds: float = 21600.0
     user_agent: str = DEFAULT_USER_AGENT
     browser_fetch_enabled: bool = False
@@ -78,7 +78,7 @@ def load_config(path: str | Path) -> AppConfig:
         article_lookback_days=_optional_int_value(raw, "article_lookback_days", 30),
         min_article_delay_seconds=_float_value(raw, "min_article_delay_seconds", 75.0),
         max_article_delay_seconds=_float_value(raw, "max_article_delay_seconds", 180.0),
-        max_articles_per_refresh=_int_value(raw, "max_articles_per_refresh", 3),
+        max_articles_per_refresh=_int_value(raw, "max_articles_per_refresh", 5),
         retry_failed_after_seconds=_float_value(raw, "retry_failed_after_seconds", 21600.0),
         user_agent=_string_value(raw, "user_agent", DEFAULT_USER_AGENT),
         browser_fetch_enabled=browser_enabled,

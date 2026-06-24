@@ -36,7 +36,7 @@ article_lookback_days = 30
 rss_item_limit = 500
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
-max_articles_per_refresh = 4
+max_articles_per_refresh = 5
 retry_failed_after_seconds = 21600
 world_in_brief_refresh_interval_seconds = 3600
 ```
@@ -54,9 +54,9 @@ This means:
 - The served RSS output is capped at 500 full-text items by default, which is
   independent of upstream article fetch volume.
 - New article fetches happen sequentially.
-- A normal refresh fetches at most four article bodies.
+- A normal refresh fetches at most five article bodies.
 - Browser article fetches have a hard 180-second timeout.
-- The normal scheduled trial ceiling is about 48 article-page fetches per hour,
+- The normal scheduled trial ceiling is about 60 article-page fetches per hour,
   though the randomized inter-article delay usually keeps the actual rate lower.
 - The World in Brief special fetch runs at most once per hour and counts
   against the article-fetch budget.
@@ -90,12 +90,12 @@ Manual backfills should stay one-at-a-time and sequential. Do not run parallel
 refresh processes, tight `--force` loops, or multiple hosts against the same
 Economist account.
 
-The 5-minute/four-article setting is intentionally a monitored trial. The
+The 5-minute/five-article setting is intentionally a monitored trial. The
 scheduled service should use `--ignore-refresh-interval`, not `--force`, because
 `--force` also bypasses failed-article retry backoff. If telemetry shows HTTP
 `403`, HTTP `429`, Cloudflare challenges, or repeated excerpt/login responses,
-reduce `max_articles_per_refresh` to `3`, reduce it further to `2` or `1`, or
-restore a 10-minute timer.
+reduce `max_articles_per_refresh` to `4`, reduce it further to `3`, `2`, or
+`1`, or restore a 10-minute timer.
 
 ## Why Not Fetch On Every RSS Request?
 
