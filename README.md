@@ -109,6 +109,8 @@ standard RSS 2.0 output:
 
 ```text
 GET /rss.xml?token=long-random-token-for-rss-reader&category=United%20States
+GET /rss.xml?token=long-random-token-for-rss-reader&limit=50
+GET /rss.xml?token=long-random-token-for-rss-reader&category=Business&limit=20
 ```
 
 For RSS readers that work better with distinct feed URLs, use the category-feed
@@ -123,11 +125,15 @@ Use repeated `category` parameters or comma-separated values to match any of
 several categories. Matching is case-insensitive and uses the same `<category>`
 values emitted in the RSS items.
 
+Use `limit` to request a smaller number of items, such as `limit=20` or
+`limit=50`. `count` is accepted as an alias. Requested limits are capped by the
+configured `rss_item_limit`, which defaults to `500`.
+
 The default `/rss.xml` response is standard RSS 2.0. The optional HTTP
-category-filtering interface (`category=...` and `/rss/category/*.xml`) is the
+query interface (`category=...`, `limit=...`, and `/rss/category/*.xml`) is the
 project's intentional extension beyond RSS 2.0, added so other projects and RSS
-readers can subscribe to section-specific feeds. The filtered responses
-themselves are still standard RSS 2.0 documents.
+readers can subscribe to section-specific or shorter feeds. The filtered and
+limited responses themselves are still standard RSS 2.0 documents.
 
 The `/article.txt` route is a separate authenticated HTTP endpoint, not part of
 the RSS payload. It exists so downstream tools can fetch the full cached article
