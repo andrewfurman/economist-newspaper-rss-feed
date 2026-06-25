@@ -60,16 +60,18 @@ than a standard article.
 ## RSS Structure
 
 The generated feed is RSS 2.0 and is intentionally lightweight. Each item
-includes `title`, `link`, `guid`, `pubDate`, a short `description`, and one or
-more `category` values. The feed does not embed full article HTML in
-`content:encoded`; callers should use `link` to open the original Economist
-article or a text endpoint when full article text is needed.
+includes `title`, `guid`, `pubDate`, a `description`, and one or more
+`category` values. Regular article items also include `link`. The feed does not
+embed full article HTML in `content:encoded`; callers should use `link` to open
+the original Economist article or a text endpoint when full article text is
+needed.
 
 The compact brief formats are the exception to the short-description rule.
 When cached full text is available, `The World in Brief` and United States/US
-in Brief items put their full plain text in the item `description`. Regular
-articles still emit only the short preview description. The feed never embeds
-full article HTML or images.
+in Brief items put their full plain text in the item `description` and omit the
+item `link`, because the full article text is already present in the feed.
+Regular articles still emit only the short preview description. The feed never
+embeds full article HTML or images.
 
 Full cached article text is available from an authenticated companion endpoint:
 
