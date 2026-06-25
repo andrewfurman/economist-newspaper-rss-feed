@@ -113,7 +113,7 @@ class ServerCategoryFilterTests(unittest.TestCase):
     def test_category_feed_metadata_names_filtered_feed(self):
         self.assertEqual(
             _rss_title(["United States"]),
-            "The Economist full-text private feed - United States",
+            "The Economist private article feed - United States",
         )
         self.assertIn("United States", _rss_description(["United States"]))
 

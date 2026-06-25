@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 
 from economist_rss.feed import (
     CONTENT_NS,
+    DESCRIPTION_PREVIEW_CHARS,
     FeedItem,
     build_rss,
     categories_for_item,
@@ -38,7 +39,7 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(items[0].source, "Example")
         self.assertEqual(items[0].categories, ["Business"])
 
-    def test_build_rss_includes_content_encoded(self):
+    def test_build_rss_omits_full_html_and_source(self):
         output = build_rss(
             [
                 FeedItem(
@@ -54,10 +55,30 @@ class FeedTests(unittest.TestCase):
 
         root = ET.fromstring(output)
         encoded = root.find(f".//{{{CONTENT_NS}}}encoded")
+        source = root.find(".//source")
 
-        self.assertIsNotNone(encoded)
-        assert encoded is not None
-        self.assertEqual(encoded.text, "<p>Full text</p>")
+        self.assertIsNone(encoded)
+        self.assertIsNone(source)
+
+    def test_build_rss_truncates_description_preview(self):
+        output = build_rss(
+            [
+                FeedItem(
+                    title="Story",
+                    link="https://example.com/story",
+                    guid="story-1",
+                    summary=" ".join(["word"] * 100),
+                )
+            ]
+        )
+
+        root = ET.fromstring(output)
+        description = root.find("./channel/item/description")
+
+        self.assertIsNotNone(description)
+        assert description is not None
+        self.assertLessEqual(len(description.text or ""), DESCRIPTION_PREVIEW_CHARS)
+        self.assertTrue((description.text or "").endswith("..."))
 
     def test_build_rss_includes_section_category_from_url(self):
         output = build_rss(

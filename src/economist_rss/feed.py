@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 CONTENT_NS = "http://purl.org/rss/1.0/modules/content/"
 ATOM_NS = "http://www.w3.org/2005/Atom"
+DESCRIPTION_PREVIEW_CHARS = 320
 
 ET.register_namespace("content", CONTENT_NS)
 
@@ -43,9 +44,9 @@ def parse_feed(xml_text: str, source_name: str) -> list[FeedItem]:
 def build_rss(
     items: list[FeedItem],
     *,
-    title: str = "The Economist full-text private feed",
+    title: str = "The Economist private article feed",
     link: str = "https://www.economist.com/",
-    description: str = "Private RSS feed generated from authorized article fetches.",
+    description: str = "Private RSS article index generated from authorized article fetches.",
 ) -> str:
     rss = ET.Element("rss", {"version": "2.0"})
     channel = ET.SubElement(rss, "channel")
@@ -65,16 +66,21 @@ def build_rss(
         if feed_item.published:
             ET.SubElement(item, "pubDate").text = feed_item.published
         if feed_item.summary:
-            ET.SubElement(item, "description").text = feed_item.summary
-        if feed_item.source:
-            ET.SubElement(item, "source").text = feed_item.source
+            ET.SubElement(item, "description").text = _description_preview(
+                feed_item.summary
+            )
         for category in categories_for_item(feed_item):
             ET.SubElement(item, "category").text = category
-        if feed_item.content_html:
-            ET.SubElement(item, f"{{{CONTENT_NS}}}encoded").text = feed_item.content_html
 
     xml_body = ET.tostring(rss, encoding="unicode")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body + "\n"
+
+
+def _description_preview(summary: str) -> str:
+    normalized = " ".join(unescape(summary).split())
+    if len(normalized) <= DESCRIPTION_PREVIEW_CHARS:
+        return normalized
+    return normalized[: DESCRIPTION_PREVIEW_CHARS - 3].rstrip() + "..."
 
 
 def _parse_rss(root: ET.Element, source_name: str) -> list[FeedItem]:
