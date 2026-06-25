@@ -65,6 +65,18 @@ more `category` values. The feed does not embed full article HTML in
 `content:encoded`; callers should use `link` to open the original Economist
 article or a text endpoint when full article text is needed.
 
+Full cached article text is available from an authenticated companion endpoint:
+
+```text
+GET /article.txt?token=long-random-token-for-rss-reader&url=https%3A%2F%2Fwww.economist.com%2Fbriefing%2F2026%2F06%2F25%2Fexample
+```
+
+The article endpoint also accepts `link` or `guid` instead of `url`. It returns
+`text/plain; charset=utf-8` with the cached `content_text` value only. It does
+not return HTML, images, or embedded media, and it does not fetch The Economist
+on demand. If the article has not already been cached successfully, the endpoint
+returns `404`.
+
 Items also include RSS `<category>` elements for section-level filtering in RSS
 readers. The service stores upstream RSS/Atom category tags when The Economist
 provides them, then falls back to Economist URL paths when source categories are
@@ -110,6 +122,10 @@ category-filtering interface (`category=...` and `/rss/category/*.xml`) is the
 project's intentional extension beyond RSS 2.0, added so other projects and RSS
 readers can subscribe to section-specific feeds. The filtered responses
 themselves are still standard RSS 2.0 documents.
+
+The `/article.txt` route is a separate authenticated HTTP endpoint, not part of
+the RSS payload. It exists so downstream tools can fetch the full cached article
+text only when needed while keeping `/rss.xml` small and RSS-reader compliant.
 
 ## Files
 
