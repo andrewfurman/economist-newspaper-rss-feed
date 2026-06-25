@@ -137,6 +137,28 @@ class ArticleStoreTests(unittest.TestCase):
 
                 self.assertEqual([item.title for item in items], ["Recent"])
 
+    def test_feed_items_include_cached_plain_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                article = store.upsert_feed_item(
+                    FeedItem(
+                        title="The world in brief",
+                        link="https://www.economist.com/the-world-in-brief/2026/06/23/id",
+                        guid="world-in-brief",
+                    )
+                )
+                store.save_article_content(
+                    article,
+                    content_html="<p>Full text</p>",
+                    content_text="Full text",
+                    content_source="test",
+                )
+
+                items = store.feed_items(limit=10)
+
+                self.assertEqual(items[0].content_text, "Full text")
+
     def test_feed_items_limit_can_be_disabled(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "articles.sqlite3"
