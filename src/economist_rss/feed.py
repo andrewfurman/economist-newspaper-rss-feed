@@ -23,6 +23,7 @@ class FeedItem:
     published: str | None = None
     summary: str | None = None
     content_html: str | None = None
+    content_text: str | None = None
     source: str | None = None
     categories: list[str] = field(default_factory=list)
 
@@ -65,10 +66,9 @@ def build_rss(
         ET.SubElement(item, "guid", {"isPermaLink": "false"}).text = feed_item.guid
         if feed_item.published:
             ET.SubElement(item, "pubDate").text = feed_item.published
-        if feed_item.summary:
-            ET.SubElement(item, "description").text = _description_preview(
-                feed_item.summary
-            )
+        item_description = _item_description(feed_item)
+        if item_description:
+            ET.SubElement(item, "description").text = item_description
         for category in categories_for_item(feed_item):
             ET.SubElement(item, "category").text = category
 
@@ -81,6 +81,36 @@ def _description_preview(summary: str) -> str:
     if len(normalized) <= DESCRIPTION_PREVIEW_CHARS:
         return normalized
     return normalized[: DESCRIPTION_PREVIEW_CHARS - 3].rstrip() + "..."
+
+
+def _item_description(item: FeedItem) -> str | None:
+    if _uses_full_text_description(item) and item.content_text:
+        full_text = _plain_text_description(item.content_text)
+        if full_text:
+            return full_text
+    if item.summary:
+        return _description_preview(item.summary)
+    return None
+
+
+def _uses_full_text_description(item: FeedItem) -> bool:
+    categories = set(categories_for_item(item))
+    if "The World in Brief" in categories:
+        return True
+    return {"In Brief", "United States"}.issubset(categories)
+
+
+def _plain_text_description(text: str) -> str:
+    lines = [" ".join(unescape(line).split()) for line in text.splitlines()]
+    collapsed_blank_lines: list[str] = []
+    previous_blank = False
+    for line in lines:
+        is_blank = not line
+        if is_blank and previous_blank:
+            continue
+        collapsed_blank_lines.append(line)
+        previous_blank = is_blank
+    return "\n".join(collapsed_blank_lines).strip()
 
 
 def _parse_rss(root: ET.Element, source_name: str) -> list[FeedItem]:
@@ -108,6 +138,7 @@ def _rss_item(item: ET.Element, source_name: str) -> FeedItem:
         published=_child_text(item, "pubDate"),
         summary=summary,
         content_html=content,
+        content_text=None,
         source=source_name,
         categories=categories,
     )
@@ -137,6 +168,7 @@ def _atom_entry(entry: ET.Element, source_name: str) -> FeedItem:
         published=published,
         summary=summary,
         content_html=content,
+        content_text=None,
         source=source_name,
         categories=[category.strip() for category in categories if category.strip()],
     )

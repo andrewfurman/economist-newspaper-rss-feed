@@ -80,6 +80,82 @@ class FeedTests(unittest.TestCase):
         self.assertLessEqual(len(description.text or ""), DESCRIPTION_PREVIEW_CHARS)
         self.assertTrue((description.text or "").endswith("..."))
 
+    def test_build_rss_uses_full_text_description_for_world_in_brief(self):
+        full_text = "\n".join(
+            [
+                "World item one has a full plain-text paragraph.",
+                "",
+                "World item two should also remain visible in the feed.",
+            ]
+        )
+        output = build_rss(
+            [
+                FeedItem(
+                    title="The world in brief",
+                    link="https://www.economist.com/the-world-in-brief/2026/06/24/id",
+                    guid="world-in-brief",
+                    summary="Short preview",
+                    content_html="<p>Not used</p>",
+                    content_text=full_text,
+                )
+            ]
+        )
+
+        root = ET.fromstring(output)
+        description = root.find("./channel/item/description")
+        encoded = root.find(f".//{{{CONTENT_NS}}}encoded")
+
+        self.assertIsNone(encoded)
+        self.assertIsNotNone(description)
+        assert description is not None
+        self.assertEqual(description.text, full_text)
+
+    def test_build_rss_uses_full_text_description_for_us_in_brief(self):
+        full_text = " ".join(["United States briefing item."] * 40)
+        output = build_rss(
+            [
+                FeedItem(
+                    title="The US in Brief: A big night",
+                    link=(
+                        "https://www.economist.com/in-brief/2026/06/24/"
+                        "the-us-in-brief-a-big-night"
+                    ),
+                    guid="us-in-brief",
+                    summary="Short preview",
+                    content_text=full_text,
+                )
+            ]
+        )
+
+        root = ET.fromstring(output)
+        description = root.find("./channel/item/description")
+
+        self.assertIsNotNone(description)
+        assert description is not None
+        self.assertEqual(description.text, full_text)
+        self.assertGreater(len(description.text or ""), DESCRIPTION_PREVIEW_CHARS)
+
+    def test_build_rss_keeps_regular_articles_as_summary_preview(self):
+        full_text = " ".join(["Regular article full text."] * 40)
+        output = build_rss(
+            [
+                FeedItem(
+                    title="A normal United States story",
+                    link="https://www.economist.com/united-states/2026/06/24/story",
+                    guid="regular-us-story",
+                    summary="Short preview",
+                    content_text=full_text,
+                )
+            ]
+        )
+
+        root = ET.fromstring(output)
+        description = root.find("./channel/item/description")
+
+        self.assertIsNotNone(description)
+        assert description is not None
+        self.assertEqual(description.text, "Short preview")
+
     def test_build_rss_includes_section_category_from_url(self):
         output = build_rss(
             [

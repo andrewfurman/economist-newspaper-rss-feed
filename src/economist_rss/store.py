@@ -244,6 +244,7 @@ class ArticleStore:
                 published=row["published"],
                 summary=row["summary"],
                 content_html=row["content_html"],
+                content_text=row["content_text"],
                 source=row["source"],
                 categories=_decode_categories(row["categories"]),
             )
