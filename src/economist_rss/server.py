@@ -69,16 +69,20 @@ class EconomistRssServer:
                     with owner.lock:
                         refresh_if_stale(owner.config)
                     with ArticleStore(owner.config.database_path) as store:
+                        try:
+                            requested_limit = _rss_item_limit(
+                                parsed.query,
+                                owner.config.rss_item_limit,
+                            )
+                        except ValueError as exc:
+                            self.send_error(400, str(exc))
+                            return
                         category_filters = _category_filters(parsed.query)
                         if path_category:
                             category_filters = _unique_casefolded(
                                 [path_category, *category_filters]
                             )
-                        item_limit = (
-                            None
-                            if category_filters
-                            else owner.config.rss_item_limit
-                        )
+                        item_limit = None if category_filters else requested_limit
                         feed_items = store.feed_items(
                             limit=item_limit,
                             published_after=cutoff_datetime(
@@ -90,8 +94,8 @@ class EconomistRssServer:
                                 feed_items,
                                 category_filters,
                             )
-                            if owner.config.rss_item_limit is not None:
-                                feed_items = feed_items[: owner.config.rss_item_limit]
+                            if requested_limit is not None:
+                                feed_items = feed_items[:requested_limit]
                         rss = build_rss(
                             feed_items,
                             title=_rss_title(category_filters),
@@ -173,6 +177,25 @@ def _category_filters(query: str) -> list[str]:
     for raw_value in raw_values:
         values.extend(part.strip() for part in raw_value.split(","))
     return _unique_casefolded(values)
+
+
+def _rss_item_limit(query: str, default_limit: int | None) -> int | None:
+    parsed = parse_qs(query)
+    raw_values = [*parsed.get("limit", []), *parsed.get("count", [])]
+    if not raw_values:
+        return default_limit
+    raw_value = raw_values[-1].strip()
+    if not raw_value:
+        return default_limit
+    try:
+        requested_limit = int(raw_value)
+    except ValueError as exc:
+        raise ValueError("limit must be a positive integer") from exc
+    if requested_limit < 1:
+        raise ValueError("limit must be a positive integer")
+    if default_limit is not None:
+        return min(requested_limit, default_limit)
+    return requested_limit
 
 
 def _article_lookup_key(query: str) -> str | None:

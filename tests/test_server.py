@@ -10,6 +10,7 @@ from economist_rss.server import (
     _category_from_feed_path,
     _category_filters,
     _filter_items_by_category,
+    _rss_item_limit,
     _rss_description,
     _rss_title,
 )
@@ -119,6 +120,23 @@ class ServerCategoryFilterTests(unittest.TestCase):
             "The Economist private article feed - United States",
         )
         self.assertIn("United States", _rss_description(["United States"]))
+
+    def test_rss_item_limit_defaults_to_configured_limit(self):
+        self.assertEqual(_rss_item_limit("token=secret", 500), 500)
+        self.assertIsNone(_rss_item_limit("token=secret", None))
+
+    def test_rss_item_limit_accepts_limit_or_count(self):
+        self.assertEqual(_rss_item_limit("token=secret&limit=20", 500), 20)
+        self.assertEqual(_rss_item_limit("token=secret&count=50", 500), 50)
+
+    def test_rss_item_limit_is_capped_by_configured_limit(self):
+        self.assertEqual(_rss_item_limit("token=secret&limit=1000", 500), 500)
+
+    def test_rss_item_limit_rejects_invalid_values(self):
+        with self.assertRaises(ValueError):
+            _rss_item_limit("token=secret&limit=0", 500)
+        with self.assertRaises(ValueError):
+            _rss_item_limit("token=secret&limit=abc", 500)
 
 
 class ServerArticleTextTests(unittest.TestCase):
