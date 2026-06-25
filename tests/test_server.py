@@ -1,8 +1,11 @@
 import os
+from types import SimpleNamespace
 import unittest
 
 from economist_rss.feed import FeedItem
 from economist_rss.server import (
+    _article_lookup_key,
+    _article_text_body,
     _authorized,
     _category_from_feed_path,
     _category_filters,
@@ -116,6 +119,52 @@ class ServerCategoryFilterTests(unittest.TestCase):
             "The Economist private article feed - United States",
         )
         self.assertIn("United States", _rss_description(["United States"]))
+
+
+class ServerArticleTextTests(unittest.TestCase):
+    def test_article_lookup_key_accepts_url_link_or_guid(self):
+        self.assertEqual(
+            _article_lookup_key(
+                "token=secret&url=https%3A%2F%2Fwww.economist.com%2Fstory"
+            ),
+            "https://www.economist.com/story",
+        )
+        self.assertEqual(
+            _article_lookup_key(
+                "token=secret&link=https%3A%2F%2Fwww.economist.com%2Fstory"
+            ),
+            "https://www.economist.com/story",
+        )
+        self.assertEqual(
+            _article_lookup_key("token=secret&guid=story-1"),
+            "story-1",
+        )
+
+    def test_article_lookup_key_rejects_empty_lookup(self):
+        self.assertIsNone(_article_lookup_key("token=secret&url="))
+        self.assertIsNone(_article_lookup_key("token=secret"))
+
+    def test_article_text_body_returns_cached_plain_text(self):
+        article = SimpleNamespace(
+            content_status="ok",
+            content_text="\nFirst paragraph.\n\nSecond paragraph.  \n",
+        )
+
+        self.assertEqual(
+            _article_text_body(article),
+            "First paragraph.\n\nSecond paragraph.",
+        )
+
+    def test_article_text_body_rejects_missing_or_failed_content(self):
+        self.assertIsNone(_article_text_body(None))
+        self.assertIsNone(
+            _article_text_body(
+                SimpleNamespace(content_status="login_required", content_text="Text")
+            )
+        )
+        self.assertIsNone(
+            _article_text_body(SimpleNamespace(content_status="ok", content_text="   "))
+        )
 
 
 if __name__ == "__main__":

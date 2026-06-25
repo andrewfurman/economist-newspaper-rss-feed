@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .config import AppConfig
 from .feed import FeedItem, build_rss, categories_for_item, category_for_slug
 from .refresh import refresh_if_stale
-from .store import ArticleStore
+from .store import ArticleStore, StoredArticle
 from .util import cutoff_datetime
 
 CATEGORY_FEED_PREFIX = "/rss/category/"
@@ -30,6 +30,29 @@ class EconomistRssServer:
                 parsed = urlparse(self.path)
                 if parsed.path == "/healthz":
                     self._send_text("ok\n", content_type="text/plain")
+                    return
+                if parsed.path == "/article.txt":
+                    if not _authorized(
+                        self.headers.get("Authorization", ""),
+                        parsed.query,
+                        "ECONOMIST_FEED_TOKEN",
+                    ):
+                        self.send_error(401)
+                        return
+                    lookup_key = _article_lookup_key(parsed.query)
+                    if lookup_key is None:
+                        self.send_error(400, "Missing url, link, or guid parameter")
+                        return
+                    with ArticleStore(owner.config.database_path) as store:
+                        article = store.get_article(lookup_key)
+                    body = _article_text_body(article)
+                    if body is None:
+                        self.send_error(404, "Article text not found")
+                        return
+                    self._send_text(
+                        body + "\n",
+                        content_type="text/plain; charset=utf-8",
+                    )
                     return
                 path_category = _category_from_feed_path(parsed.path)
                 if (
@@ -150,6 +173,27 @@ def _category_filters(query: str) -> list[str]:
     for raw_value in raw_values:
         values.extend(part.strip() for part in raw_value.split(","))
     return _unique_casefolded(values)
+
+
+def _article_lookup_key(query: str) -> str | None:
+    parsed = parse_qs(query)
+    for parameter in ("url", "link", "guid"):
+        for value in parsed.get(parameter, []):
+            lookup_key = value.strip()
+            if lookup_key:
+                return lookup_key
+    return None
+
+
+def _article_text_body(article: StoredArticle | None) -> str | None:
+    if article is None:
+        return None
+    if article.content_status != "ok":
+        return None
+    if article.content_text is None:
+        return None
+    text = article.content_text.strip()
+    return text or None
 
 
 def _filter_items_by_category(

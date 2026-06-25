@@ -110,8 +110,8 @@ class ArticleStore:
     def get_article(self, url_or_key: str) -> StoredArticle | None:
         key = canonical_url(url_or_key) or url_or_key
         row = self.conn.execute(
-            "select * from articles where canonical_url = ? or url = ?",
-            (key, url_or_key),
+            "select * from articles where canonical_url = ? or url = ? or guid = ?",
+            (key, url_or_key, url_or_key),
         ).fetchone()
         return _row_to_article(row) if row else None
 
@@ -294,6 +294,9 @@ class ArticleStore:
         )
         self.conn.execute(
             "create index if not exists idx_articles_status on articles(content_status)"
+        )
+        self.conn.execute(
+            "create index if not exists idx_articles_guid on articles(guid)"
         )
         self.conn.commit()
 

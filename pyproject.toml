@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "economist-newspaper-rss-feed"
 version = "0.1.0"
-description = "Build a private full-text RSS feed from authorized Economist article fetches."
+description = "Build a private Economist RSS index with cached plain-text article retrieval."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

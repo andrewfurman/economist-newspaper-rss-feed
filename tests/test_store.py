@@ -81,6 +81,24 @@ class ArticleStoreTests(unittest.TestCase):
                 self.assertEqual(first.canonical_url, second.canonical_url)
                 self.assertEqual(len(store.pending_articles(limit=10, retry_failed_after_seconds=1, exclude_url_patterns=[])), 1)
 
+    def test_get_article_can_lookup_by_guid(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                article = store.upsert_feed_item(
+                    FeedItem(
+                        title="Story",
+                        link="https://www.economist.com/briefing/2026/06/23/story",
+                        guid="story-guid",
+                    )
+                )
+
+                found = store.get_article("story-guid")
+
+                self.assertIsNotNone(found)
+                assert found is not None
+                self.assertEqual(found.canonical_url, article.canonical_url)
+
     def test_feed_items_can_be_limited_to_recent_published_articles(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "articles.sqlite3"
