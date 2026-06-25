@@ -182,7 +182,7 @@ def _unique_casefolded(values: list[str]) -> list[str]:
 
 
 def _rss_title(category_filters: list[str]) -> str:
-    base_title = "The Economist full-text private feed"
+    base_title = "The Economist private article feed"
     if not category_filters:
         return base_title
     return f"{base_title} - {', '.join(category_filters)}"
@@ -190,8 +190,8 @@ def _rss_title(category_filters: list[str]) -> str:
 
 def _rss_description(category_filters: list[str]) -> str:
     if not category_filters:
-        return "Private RSS feed generated from authorized article fetches."
+        return "Private RSS article index generated from authorized article fetches."
     return (
-        "Private RSS feed generated from authorized article fetches, "
+        "Private RSS article index generated from authorized article fetches, "
         f"filtered to: {', '.join(category_filters)}."
     )

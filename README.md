@@ -1,17 +1,18 @@
 # Economist Newspaper RSS Feed
 
-Private, subscriber-only tooling for producing a standard RSS feed of
-The Economist articles with full text for use in a personal RSS reader.
+Private, subscriber-only tooling for producing a lightweight standard RSS feed
+of The Economist articles for use in a personal RSS reader or other private
+tools.
 
 This repository is for individuals who already subscribe to the digital or
-print edition of The Economist and want to read the articles they are
-authorized to access in their preferred RSS reader. It is not a public
-mirror, scraper service, redistribution feed, or paywall bypass.
+print edition of The Economist and want a private article list for the articles
+they are authorized to access. It is not a public mirror, scraper service,
+redistribution feed, or paywall bypass.
 
 ## Guardrails
 
 - Use only with your own active Economist subscription.
-- Do not publish generated full-text feeds.
+- Do not publish generated feeds or cached full-text articles.
 - Do not commit credentials, browser state, article caches, or generated feeds.
 - Do not use this to train models, bulk archive publisher content, or share
   subscriber-only articles with other people.
@@ -28,13 +29,13 @@ The service is cache-first.
 2. It records article URLs in a local SQLite database.
 3. It fetches full article text only for articles that are not already cached.
 4. It fetches articles sequentially, with a randomized delay between requests.
-5. It writes or serves a normal RSS 2.0 feed with `content:encoded` article
-   bodies.
+5. It writes or serves a lightweight RSS 2.0 feed with article metadata and
+   preview descriptions.
 6. It emits RSS `<category>` tags for Economist sections so readers can filter
    or search by section.
 
 By default, RSS reader requests are limited by a 5-minute freshness guard,
-discover articles from the last 30 days, serve up to 500 full-text RSS items,
+discover articles from the last 30 days, serve up to 500 summary RSS items,
 and fetch at most five new article bodies per refresh. The systemd timer uses
 `--ignore-refresh-interval` so each scheduled 5-minute tick can try to backfill
 five uncached articles without using `--force`; failed article retry backoff
@@ -58,9 +59,11 @@ than a standard article.
 
 ## RSS Structure
 
-The generated feed is RSS 2.0 with the `content:encoded` namespace for full
-article bodies. Each item includes the normal RSS fields `title`, `link`,
-`guid`, `pubDate`, `description`, and `source` when available.
+The generated feed is RSS 2.0 and is intentionally lightweight. Each item
+includes `title`, `link`, `guid`, `pubDate`, a short `description`, and one or
+more `category` values. The feed does not embed full article HTML in
+`content:encoded`; callers should use `link` to open the original Economist
+article or a text endpoint when full article text is needed.
 
 Items also include RSS `<category>` elements for section-level filtering in RSS
 readers. The service stores upstream RSS/Atom category tags when The Economist
@@ -80,8 +83,8 @@ too broad. For example, `The US in Brief: ...` emits both `In Brief` and
 `United States`, and `The World in Brief` emits `The World in Brief`.
 
 Interactive URLs can include both the underlying section and format, such as
-`Europe` and `Interactive`. The RSS `<source>` field remains the upstream feed
-source; use `<category>` for reader filtering by newspaper section.
+`Europe` and `Interactive`. Use `<category>` for reader filtering by newspaper
+section.
 
 The HTTP server also supports optional category filtering while still returning
 standard RSS 2.0 output:
@@ -214,7 +217,7 @@ The defaults intentionally behave like a patient human subscriber:
 - RSS reads serve cache unless the 5-minute freshness guard has elapsed
 - scheduled timer refresh every 5 minutes with `--ignore-refresh-interval`
 - latest and section-feed discovery for articles published in the last 30 days
-- generated RSS output limit of 500 full-text items
+- generated RSS output limit of 500 summary items backed by cached full text
 - one article request at a time
 - randomized 75-180 second delay between article fetches
 - maximum five new article downloads per refresh

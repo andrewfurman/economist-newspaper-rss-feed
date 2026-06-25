@@ -51,8 +51,8 @@ This means:
 - Discovery is limited to configured RSS items published in the last 30 days.
 - The default config uses section RSS feeds because `latest/rss.xml` alone is
   capped at 300 items and may not reach 30 days.
-- The served RSS output is capped at 500 full-text items by default, which is
-  independent of upstream article fetch volume.
+- The served RSS output is capped at 500 summary items backed by cached full
+  text by default, which is independent of upstream article fetch volume.
 - New article fetches happen sequentially.
 - A normal refresh fetches at most five article bodies.
 - Browser article fetches have a hard 180-second timeout.

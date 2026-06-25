@@ -90,18 +90,18 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if not items:
-        print("No full-text feed items are cached yet.", file=sys.stderr)
+        print("No summary feed items are cached yet.", file=sys.stderr)
         return 1
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(build_rss(items), encoding="utf-8")
-    print(f"Wrote {len(items)} cached full-text items to {output_path}", file=sys.stderr)
+    print(f"Wrote {len(items)} cached summary items to {output_path}", file=sys.stderr)
     return 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build a private full-text RSS feed from authorized article fetches."
+        description="Build a private summary RSS feed from authorized article fetches."
     )
     parser.add_argument(
         "command",
@@ -141,7 +141,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=(
-            "Maximum cached full-text articles to include in generated RSS. "
+            "Maximum cached summary articles to include in generated RSS. "
             "Defaults to rss_item_limit from the config."
         ),
     )
