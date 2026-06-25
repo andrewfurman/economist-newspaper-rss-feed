@@ -62,7 +62,8 @@ def build_rss(
     for feed_item in items:
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = feed_item.title
-        ET.SubElement(item, "link").text = feed_item.link
+        if not _omits_item_link(feed_item):
+            ET.SubElement(item, "link").text = feed_item.link
         ET.SubElement(item, "guid", {"isPermaLink": "false"}).text = feed_item.guid
         if feed_item.published:
             ET.SubElement(item, "pubDate").text = feed_item.published
@@ -91,6 +92,10 @@ def _item_description(item: FeedItem) -> str | None:
     if item.summary:
         return _description_preview(item.summary)
     return None
+
+
+def _omits_item_link(item: FeedItem) -> bool:
+    return bool(_uses_full_text_description(item) and item.content_text)
 
 
 def _uses_full_text_description(item: FeedItem) -> bool:

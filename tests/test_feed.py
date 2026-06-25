@@ -103,9 +103,11 @@ class FeedTests(unittest.TestCase):
 
         root = ET.fromstring(output)
         description = root.find("./channel/item/description")
+        link = root.find("./channel/item/link")
         encoded = root.find(f".//{{{CONTENT_NS}}}encoded")
 
         self.assertIsNone(encoded)
+        self.assertIsNone(link)
         self.assertIsNotNone(description)
         assert description is not None
         self.assertEqual(description.text, full_text)
@@ -129,7 +131,9 @@ class FeedTests(unittest.TestCase):
 
         root = ET.fromstring(output)
         description = root.find("./channel/item/description")
+        link = root.find("./channel/item/link")
 
+        self.assertIsNone(link)
         self.assertIsNotNone(description)
         assert description is not None
         self.assertEqual(description.text, full_text)
@@ -151,7 +155,14 @@ class FeedTests(unittest.TestCase):
 
         root = ET.fromstring(output)
         description = root.find("./channel/item/description")
+        link = root.find("./channel/item/link")
 
+        self.assertIsNotNone(link)
+        assert link is not None
+        self.assertEqual(
+            link.text,
+            "https://www.economist.com/united-states/2026/06/24/story",
+        )
         self.assertIsNotNone(description)
         assert description is not None
         self.assertEqual(description.text, "Short preview")
