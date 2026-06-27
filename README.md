@@ -73,6 +73,11 @@ item `link`, because the full article text is already present in the feed.
 Regular articles still emit only the short preview description. The feed never
 embeds full article HTML or images.
 
+Only the latest `The World in Brief` item and the latest United States/US in
+Brief item are emitted in RSS output. Older cached brief items remain in the
+SQLite database for history and direct lookup, but they are suppressed from
+default, limited, and category-filtered RSS feeds.
+
 Full cached article text is available from an authenticated companion endpoint:
 
 ```text
