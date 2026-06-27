@@ -182,6 +182,138 @@ class ArticleStoreTests(unittest.TestCase):
                 self.assertEqual(len(store.feed_items(limit=None)), 3)
                 self.assertEqual(store.feed_items(limit=0), [])
 
+    def test_feed_items_only_include_latest_brief_items(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            base = datetime(2026, 6, 27, tzinfo=timezone.utc)
+            with ArticleStore(path) as store:
+                old_world = store.upsert_feed_item(
+                    FeedItem(
+                        title="The world in brief: old update",
+                        link=(
+                            "https://www.economist.com/the-world-in-brief/"
+                            "2026/06/25/old"
+                        ),
+                        guid="old-world",
+                        published=format_datetime(base - timedelta(days=2)),
+                    )
+                )
+                latest_world = store.upsert_feed_item(
+                    FeedItem(
+                        title="The world in brief: latest update",
+                        link=(
+                            "https://www.economist.com/the-world-in-brief/"
+                            "2026/06/27/latest"
+                        ),
+                        guid="latest-world",
+                        published=format_datetime(base),
+                    )
+                )
+                old_us = store.upsert_feed_item(
+                    FeedItem(
+                        title="The US in Brief: old update",
+                        link=(
+                            "https://www.economist.com/in-brief/2026/06/25/"
+                            "the-us-in-brief-old-update"
+                        ),
+                        guid="old-us",
+                        published=format_datetime(base - timedelta(days=2)),
+                    )
+                )
+                latest_us = store.upsert_feed_item(
+                    FeedItem(
+                        title="The US in Brief: latest update",
+                        link=(
+                            "https://www.economist.com/in-brief/2026/06/27/"
+                            "the-us-in-brief-latest-update"
+                        ),
+                        guid="latest-us",
+                        published=format_datetime(base - timedelta(hours=1)),
+                    )
+                )
+                regular = store.upsert_feed_item(
+                    FeedItem(
+                        title="Regular story",
+                        link="https://www.economist.com/business/2026/06/27/story",
+                        guid="regular",
+                        published=format_datetime(base - timedelta(hours=2)),
+                    )
+                )
+                for article in (old_world, latest_world, old_us, latest_us, regular):
+                    store.save_article_content(
+                        article,
+                        content_html="<p>Full text</p>",
+                        content_text="Full text",
+                        content_source="test",
+                    )
+
+                titles = [item.title for item in store.feed_items(limit=None)]
+
+                self.assertIn("The world in brief: latest update", titles)
+                self.assertNotIn("The world in brief: old update", titles)
+                self.assertIn("The US in Brief: latest update", titles)
+                self.assertNotIn("The US in Brief: old update", titles)
+                self.assertIn("Regular story", titles)
+
+                stored_old_world = store.get_article(old_world.canonical_url)
+                stored_old_us = store.get_article(old_us.canonical_url)
+                self.assertIsNotNone(stored_old_world)
+                self.assertIsNotNone(stored_old_us)
+                assert stored_old_world is not None
+                assert stored_old_us is not None
+                self.assertEqual(stored_old_world.content_status, "ok")
+                self.assertEqual(stored_old_us.content_status, "ok")
+
+    def test_feed_items_limit_applies_after_stale_brief_suppression(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            base = datetime(2026, 6, 27, tzinfo=timezone.utc)
+            with ArticleStore(path) as store:
+                latest_world = store.upsert_feed_item(
+                    FeedItem(
+                        title="The world in brief: latest update",
+                        link=(
+                            "https://www.economist.com/the-world-in-brief/"
+                            "2026/06/27/latest"
+                        ),
+                        guid="latest-world",
+                        published=format_datetime(base),
+                    )
+                )
+                stale_world = store.upsert_feed_item(
+                    FeedItem(
+                        title="The world in brief: stale update",
+                        link=(
+                            "https://www.economist.com/the-world-in-brief/"
+                            "2026/06/26/stale"
+                        ),
+                        guid="stale-world",
+                        published=format_datetime(base - timedelta(minutes=1)),
+                    )
+                )
+                regular = store.upsert_feed_item(
+                    FeedItem(
+                        title="Regular story",
+                        link="https://www.economist.com/business/2026/06/27/story",
+                        guid="regular",
+                        published=format_datetime(base - timedelta(minutes=2)),
+                    )
+                )
+                for article in (latest_world, stale_world, regular):
+                    store.save_article_content(
+                        article,
+                        content_html="<p>Full text</p>",
+                        content_text="Full text",
+                        content_source="test",
+                    )
+
+                items = store.feed_items(limit=2)
+
+                self.assertEqual(
+                    [item.title for item in items],
+                    ["The world in brief: latest update", "Regular story"],
+                )
+
     def test_feed_items_preserve_sourced_categories(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "articles.sqlite3"

@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 from typing import Iterable
 
-from .feed import FeedItem
+from .feed import FeedItem, categories_for_item
 from .util import canonical_url, normalized_datetime, now_iso, parse_datetime, stable_id
 
 
@@ -219,11 +219,6 @@ class ArticleStore:
         if published_after is not None:
             where.append("(published_at is null or published_at >= ?)")
             params.append(published_after.isoformat())
-        limit_clause = ""
-        if limit is not None:
-            limit_clause = "limit ?"
-            params.append(limit)
-
         rows = self.conn.execute(
             """
             select * from articles
@@ -232,11 +227,10 @@ class ArticleStore:
               case when published_at is null or published_at = '' then 1 else 0 end,
               published_at desc,
               fetched_at desc
-            """ + limit_clause + """
             """,
             params,
         ).fetchall()
-        return [
+        items = [
             FeedItem(
                 title=row["title"] or "Untitled",
                 link=row["url"] or row["canonical_url"],
@@ -250,6 +244,10 @@ class ArticleStore:
             )
             for row in rows
         ]
+        items = _latest_brief_items_only(items)
+        if limit is not None:
+            return items[:limit]
+        return items
 
     def _ensure_schema(self) -> None:
         self.conn.execute(
@@ -348,6 +346,28 @@ def _decode_categories(raw: str | None) -> list[str]:
 def _is_recent_article(article: StoredArticle, published_after: datetime) -> bool:
     published = parse_datetime(article.published_at or article.published)
     return published is None or published >= published_after
+
+
+def _latest_brief_items_only(items: list[FeedItem]) -> list[FeedItem]:
+    seen_brief_groups: set[str] = set()
+    filtered: list[FeedItem] = []
+    for item in items:
+        brief_group = _brief_item_group(item)
+        if brief_group is not None:
+            if brief_group in seen_brief_groups:
+                continue
+            seen_brief_groups.add(brief_group)
+        filtered.append(item)
+    return filtered
+
+
+def _brief_item_group(item: FeedItem) -> str | None:
+    categories = set(categories_for_item(item))
+    if "The World in Brief" in categories:
+        return "world_in_brief"
+    if {"In Brief", "United States"}.issubset(categories):
+        return "united_states_in_brief"
+    return None
 
 
 def _row_to_article(row: sqlite3.Row) -> StoredArticle:
