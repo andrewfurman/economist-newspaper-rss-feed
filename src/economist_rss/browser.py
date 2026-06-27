@@ -28,6 +28,7 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
     storage_state = Path(config.browser_storage_state)
     user_data_dir = Path(config.browser_user_data_dir) if config.browser_user_data_dir else None
     minimum_text_length = minimum_text_length_for_url(url)
+    minimum_word_count = minimum_word_count_for_url(url)
 
     with sync_playwright() as playwright:
         context = None
@@ -105,7 +106,11 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
 
             article = extract_article(html)
             if article is None or len(article.text) < minimum_text_length:
-                article = _extract_rendered_article(page)
+                article = _extract_rendered_article(
+                    page,
+                    minimum_text_length=minimum_text_length,
+                    minimum_word_count=minimum_word_count,
+                )
             if article is None or len(article.text) < minimum_text_length:
                 return BrowserResult(
                     ok=False,
@@ -147,6 +152,14 @@ def minimum_text_length_for_url(url: str) -> int:
     if "/economic-and-financial-indicators/" in url:
         return 100
     return 700
+
+
+def minimum_word_count_for_url(url: str) -> int:
+    if "/podcasts/" in url or "/audio/podcasts/" in url:
+        return 20
+    if "/economic-and-financial-indicators/" in url:
+        return 20
+    return 80
 
 
 def authenticate_browser(config: AppConfig, *, manual_login: bool = False) -> BrowserResult:
@@ -480,7 +493,12 @@ def _inspect_verification_page(page: Any, verify_url: str) -> BrowserResult:
     )
 
 
-def _extract_rendered_article(page: Any) -> ArticleContent | None:
+def _extract_rendered_article(
+    page: Any,
+    *,
+    minimum_text_length: int = 700,
+    minimum_word_count: int = 80,
+) -> ArticleContent | None:
     title = _inner_text(page, "article h1, main h1, h1")
     for selector in (
         "article",
@@ -489,8 +507,12 @@ def _extract_rendered_article(page: Any) -> ArticleContent | None:
         '[class*="article" i]',
     ):
         rendered_text = _inner_text(page, selector)
-        article = _article_from_rendered_text(title, rendered_text)
-        if article is not None and len(article.text) >= 700:
+        article = _article_from_rendered_text(
+            title,
+            rendered_text,
+            minimum_word_count=minimum_word_count,
+        )
+        if article is not None and len(article.text) >= minimum_text_length:
             return article
     return None
 
@@ -502,7 +524,12 @@ def _inner_text(page: Any, selector: str) -> str:
         return ""
 
 
-def _article_from_rendered_text(title: str | None, rendered_text: str) -> ArticleContent | None:
+def _article_from_rendered_text(
+    title: str | None,
+    rendered_text: str,
+    *,
+    minimum_word_count: int = 80,
+) -> ArticleContent | None:
     lines = _clean_rendered_lines(rendered_text)
     if not lines:
         return None
@@ -522,7 +549,7 @@ def _article_from_rendered_text(title: str | None, rendered_text: str) -> Articl
         blocks.append((tag, line))
 
     text_lines = [line for _, line in blocks]
-    if len(" ".join(text_lines).split()) < 80:
+    if len(" ".join(text_lines).split()) < minimum_word_count:
         return None
 
     content_html = "\n".join(

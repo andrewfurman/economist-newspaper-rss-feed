@@ -1,6 +1,10 @@
 import unittest
 
-from economist_rss.browser import _article_from_rendered_text, minimum_text_length_for_url
+from economist_rss.browser import (
+    _article_from_rendered_text,
+    minimum_text_length_for_url,
+    minimum_word_count_for_url,
+)
 
 
 class RenderedBrowserArticleTests(unittest.TestCase):
@@ -44,6 +48,13 @@ class RenderedBrowserArticleTests(unittest.TestCase):
             ),
             100,
         )
+        self.assertEqual(
+            minimum_word_count_for_url(
+                "https://www.economist.com/economic-and-financial-indicators/"
+                "2026/06/18/economic-data-commodities-and-markets"
+            ),
+            20,
+        )
 
     def test_keeps_long_threshold_for_standard_articles(self):
         self.assertEqual(
@@ -53,6 +64,57 @@ class RenderedBrowserArticleTests(unittest.TestCase):
             ),
             700,
         )
+        self.assertEqual(
+            minimum_word_count_for_url(
+                "https://www.economist.com/finance-and-economics/2026/06/18/"
+                "a-standard-article"
+            ),
+            80,
+        )
+
+    def test_rendered_short_indicator_text_can_be_extracted_with_lower_word_count(self):
+        rendered_text = """
+        Economic data, commodities and markets
+        This week's economic data contain short table-like market notes.
+        GDP
+        Inflation
+        Interest rates
+        Commodities
+        Markets
+        America
+        China
+        Euro area
+        The latest figures are compact but still useful as a data item.
+        """
+
+        article = _article_from_rendered_text(
+            "Economic data, commodities and markets",
+            rendered_text,
+            minimum_word_count=20,
+        )
+
+        self.assertIsNotNone(article)
+        assert article is not None
+        self.assertEqual(article.method, "rendered-browser-text")
+        self.assertIn("economic data", article.text.lower())
+
+    def test_rendered_short_text_still_fails_standard_article_word_count(self):
+        rendered_text = """
+        Economic data, commodities and markets
+        This week's economic data contain short table-like market notes.
+        GDP
+        Inflation
+        Interest rates
+        Commodities
+        Markets
+        """
+
+        article = _article_from_rendered_text(
+            "Economic data, commodities and markets",
+            rendered_text,
+        )
+
+        self.assertIsNone(article)
 
 
 if __name__ == "__main__":
