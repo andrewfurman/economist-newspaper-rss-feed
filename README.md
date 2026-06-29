@@ -33,6 +33,8 @@ The service is cache-first.
    preview descriptions.
 6. It emits RSS `<category>` tags for Economist sections so readers can filter
    or search by section.
+7. It limits RSS output to the latest weekly print issue plus online-only
+   articles published after that issue date.
 
 By default, RSS reader requests are limited by a 5-minute freshness guard,
 discover articles from the last 30 days, serve up to 500 summary RSS items,
@@ -56,6 +58,36 @@ more than once per hour and saves the resolved dated page as a text RSS item.
 Economic data and market-indicator pages are accepted as shorter table/data
 items, rather than treated as login failures just because they have less prose
 than a standard article.
+
+## Current Issue Filtering
+
+By default, the RSS output is scoped to the current magazine issue rather than
+every cached article from the last 30 days. The cache still keeps older articles
+for history and direct lookup, but `/rss.xml`, `/rss/category/*.xml`, and
+generated RSS files emit only:
+
+- articles discovered on the latest first-party weekly edition page, such as
+  `https://www.economist.com/weeklyedition/2026-06-27`
+- articles not assigned to an older issue whose published date is on or after
+  the latest issue date, treated as online exclusives
+- the compact brief exceptions described below, still limited to only the
+  latest World in Brief and latest United States/US in Brief item
+
+The resolver checks `https://www.economist.com/weeklyedition/archive` for the
+newest issue URL, allowing a two-day lookahead so a newly published Saturday
+issue can be recognized near publication time. It then parses article links
+from that issue page and stores `issue_id`, `issue_date`, and `issue_source`
+metadata in SQLite. Current-issue discovery is throttled separately from
+article fetching with `current_issue_refresh_interval_seconds`, which defaults
+to six hours.
+
+If the weekly-edition page cannot be read because The Economist or Cloudflare
+blocks the request, the feed does not fail closed. It records the error in
+SQLite state, keeps any previously resolved issue metadata for the same issue,
+and otherwise falls back to the expected Saturday issue cadence. In that
+fallback mode it includes cached articles published after the previous issue
+date and excludes rows already marked as older issues. Strict print-issue
+membership is available again as soon as the weekly-edition page can be fetched.
 
 ## RSS Structure
 

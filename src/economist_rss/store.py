@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import json
 from pathlib import Path
 import sqlite3
@@ -22,6 +22,9 @@ class StoredArticle:
     published_at: str | None
     source: str | None
     categories: list[str]
+    issue_id: str | None
+    issue_date: str | None
+    issue_source: str | None
     content_html: str | None
     content_text: str | None
     content_source: str | None
@@ -186,6 +189,36 @@ class ArticleStore:
         )
         self.conn.commit()
 
+    def upsert_current_issue_article(
+        self,
+        item: FeedItem,
+        *,
+        issue_id: str,
+        issue_date: str,
+        issue_source: str,
+    ) -> StoredArticle:
+        article = self.upsert_feed_item(item)
+        timestamp = now_iso()
+        self.conn.execute(
+            """
+            update articles
+            set issue_id = ?,
+                issue_date = ?,
+                issue_source = ?,
+                updated_at = ?
+            where canonical_url = ?
+            """,
+            (
+                issue_id,
+                issue_date,
+                issue_source,
+                timestamp,
+                article.canonical_url,
+            ),
+        )
+        self.conn.commit()
+        return self.get_article(article.canonical_url)  # type: ignore[return-value]
+
     def mark_fetch_error(self, article: StoredArticle, *, status: str, error: str) -> None:
         timestamp = now_iso()
         self.conn.execute(
@@ -207,6 +240,7 @@ class ArticleStore:
         *,
         limit: int | None = 500,
         published_after: datetime | None = None,
+        current_issue_only: bool = False,
     ) -> list[FeedItem]:
         if limit is not None and limit <= 0:
             return []
@@ -230,6 +264,8 @@ class ArticleStore:
             """,
             params,
         ).fetchall()
+        if current_issue_only:
+            rows = _filter_current_issue_rows(rows, _current_issue_filter(self))
         items = [
             FeedItem(
                 title=row["title"] or "Untitled",
@@ -271,6 +307,9 @@ class ArticleStore:
               published_at text,
               source text,
               categories text,
+              issue_id text,
+              issue_date text,
+              issue_source text,
               content_html text,
               content_text text,
               content_source text,
@@ -287,6 +326,9 @@ class ArticleStore:
         self.conn.execute("create index if not exists idx_articles_published on articles(published)")
         _ensure_column(self.conn, "articles", "published_at", "text")
         _ensure_column(self.conn, "articles", "categories", "text")
+        _ensure_column(self.conn, "articles", "issue_id", "text")
+        _ensure_column(self.conn, "articles", "issue_date", "text")
+        _ensure_column(self.conn, "articles", "issue_source", "text")
         _backfill_published_at(self.conn)
         self.conn.execute(
             "create index if not exists idx_articles_published_at on articles(published_at)"
@@ -296,6 +338,9 @@ class ArticleStore:
         )
         self.conn.execute(
             "create index if not exists idx_articles_guid on articles(guid)"
+        )
+        self.conn.execute(
+            "create index if not exists idx_articles_issue_id on articles(issue_id)"
         )
         self.conn.commit()
 
@@ -348,6 +393,68 @@ def _is_recent_article(article: StoredArticle, published_after: datetime) -> boo
     return published is None or published >= published_after
 
 
+@dataclass(frozen=True)
+class _CurrentIssueFilter:
+    issue_id: str
+    issue_date: date
+    strict_issue_membership: bool
+
+
+def _current_issue_filter(store: ArticleStore) -> _CurrentIssueFilter | None:
+    issue_id = (store.get_state("current_issue_id") or "").strip()
+    issue_date_raw = (store.get_state("current_issue_date") or "").strip()
+    if not issue_id or not issue_date_raw:
+        return None
+    try:
+        issue_date = date.fromisoformat(issue_date_raw)
+    except ValueError:
+        return None
+    article_count = _int_state(store.get_state("current_issue_article_count"))
+    return _CurrentIssueFilter(
+        issue_id=issue_id,
+        issue_date=issue_date,
+        strict_issue_membership=article_count > 0,
+    )
+
+
+def _filter_current_issue_rows(
+    rows: list[sqlite3.Row],
+    current_issue: _CurrentIssueFilter | None,
+) -> list[sqlite3.Row]:
+    if current_issue is None:
+        return rows
+    return [row for row in rows if _row_matches_current_issue(row, current_issue)]
+
+
+def _row_matches_current_issue(
+    row: sqlite3.Row,
+    current_issue: _CurrentIssueFilter,
+) -> bool:
+    issue_id = (row["issue_id"] or "").strip()
+    if issue_id == current_issue.issue_id:
+        return True
+    if issue_id:
+        return False
+
+    published = parse_datetime(row["published_at"] or row["published"])
+    if published is None:
+        return False
+
+    published_date = published.date()
+    if current_issue.strict_issue_membership:
+        return published_date >= current_issue.issue_date
+
+    previous_issue_date = current_issue.issue_date - timedelta(days=7)
+    return previous_issue_date < published_date
+
+
+def _int_state(raw: str | None) -> int:
+    try:
+        return int(raw or "0")
+    except ValueError:
+        return 0
+
+
 def _latest_brief_items_only(items: list[FeedItem]) -> list[FeedItem]:
     seen_brief_groups: set[str] = set()
     filtered: list[FeedItem] = []
@@ -381,6 +488,9 @@ def _row_to_article(row: sqlite3.Row) -> StoredArticle:
         published_at=row["published_at"],
         source=row["source"],
         categories=_decode_categories(row["categories"]),
+        issue_id=row["issue_id"],
+        issue_date=row["issue_date"],
+        issue_source=row["issue_source"],
         content_html=row["content_html"],
         content_text=row["content_text"],
         content_source=row["content_source"],
