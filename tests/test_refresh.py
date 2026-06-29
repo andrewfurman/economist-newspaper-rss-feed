@@ -16,6 +16,72 @@ from economist_rss.util import now_iso
 
 
 class RefreshRateLimitTests(unittest.TestCase):
+    def test_refresh_records_current_issue_metadata_and_articles(self):
+        calls = []
+
+        class FakeFetcher:
+            def __init__(self, **_kwargs):
+                pass
+
+            def fetch_text(self, url):
+                calls.append(url)
+                if url == "https://www.economist.com/weeklyedition/archive":
+                    return FetchResponse(
+                        url=url,
+                        status=200,
+                        text='<a href="/weeklyedition/2026-06-27">June 27</a>',
+                        content_type="text/html",
+                        headers={},
+                    )
+                if url == "https://www.economist.com/weeklyedition/2026-06-27":
+                    return FetchResponse(
+                        url=url,
+                        status=200,
+                        text=(
+                            '<a href="/leaders/2026/06/24/issue-story">'
+                            "Issue story</a>"
+                        ),
+                        content_type="text/html",
+                        headers={},
+                    )
+                raise AssertionError(f"unexpected URL: {url}")
+
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "articles.sqlite3"
+            config = AppConfig(
+                feeds=[],
+                database_path=str(database_path),
+                max_articles_per_refresh=0,
+                current_issue_refresh_interval_seconds=0,
+                world_in_brief_enabled=False,
+            )
+
+            import economist_rss.refresh as refresh_module
+
+            original_fetcher = refresh_module.Fetcher
+            refresh_module.Fetcher = FakeFetcher
+            try:
+                with ArticleStore(database_path) as store:
+                    summary = refresh(store, config, force=False)
+                    stored = store.get_article(
+                        "https://www.economist.com/leaders/2026/06/24/issue-story"
+                    )
+                    issue_id = store.get_state("current_issue_id")
+                    issue_count = store.get_state("current_issue_article_count")
+            finally:
+                refresh_module.Fetcher = original_fetcher
+
+            self.assertEqual(summary.status, "ok")
+            self.assertEqual(calls, [
+                "https://www.economist.com/weeklyedition/archive",
+                "https://www.economist.com/weeklyedition/2026-06-27",
+            ])
+            self.assertEqual(issue_id, "2026-06-27")
+            self.assertEqual(issue_count, "1")
+            self.assertIsNotNone(stored)
+            assert stored is not None
+            self.assertEqual(stored.issue_id, "2026-06-27")
+
     def test_refresh_stops_batch_after_article_403(self):
         rss = """
         <rss version="2.0">
@@ -67,6 +133,7 @@ class RefreshRateLimitTests(unittest.TestCase):
                 min_article_delay_seconds=0,
                 max_article_delay_seconds=0,
                 browser_fetch_enabled=False,
+                current_issue_filter_enabled=False,
             )
             with ArticleStore(database_path) as store:
                 import economist_rss.refresh as refresh_module
@@ -138,6 +205,7 @@ class RefreshRateLimitTests(unittest.TestCase):
                 browser_fetch_enabled=True,
                 world_in_brief_enabled=True,
                 world_in_brief_refresh_interval_seconds=0,
+                current_issue_filter_enabled=False,
             )
             with ArticleStore(database_path) as store:
                 import economist_rss.refresh as refresh_module
@@ -213,6 +281,7 @@ class RefreshRateLimitTests(unittest.TestCase):
                 min_article_delay_seconds=0,
                 max_article_delay_seconds=0,
                 browser_fetch_enabled=False,
+                current_issue_filter_enabled=False,
             )
             with ArticleStore(database_path) as store:
                 stored = store.upsert_feed_item(
@@ -291,6 +360,7 @@ class RefreshRateLimitTests(unittest.TestCase):
                 browser_fetch_enabled=True,
                 browser_fetch_timeout_seconds=0.1,
                 world_in_brief_enabled=False,
+                current_issue_filter_enabled=False,
             )
 
             import economist_rss.refresh as refresh_module
