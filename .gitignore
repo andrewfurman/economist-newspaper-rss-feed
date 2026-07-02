@@ -14,3 +14,7 @@ build/
 *.egg-info/
 coverage.xml
 .coverage
+node_modules/
+react-router-app/node_modules/
+react-router-app/.screenshots/
+react-router-app/.env.local

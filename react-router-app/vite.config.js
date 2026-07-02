@@ -1,0 +1,138 @@
+import react from "@vitejs/plugin-react";
+import { defineConfig, loadEnv } from "vite";
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  return {
+    plugins: [react(), rssProxyPlugin(env)],
+    server: {
+      port: 5173,
+      strictPort: false,
+    },
+  };
+});
+
+function rssProxyPlugin(env) {
+  return {
+    name: "economist-rss-viewer-proxy",
+    configureServer(server) {
+      server.middlewares.use("/api/feed", async (request, response) => {
+        if (request.method !== "POST") {
+          sendJson(response, 405, { error: "Use POST." });
+          return;
+        }
+
+        let payload;
+        try {
+          payload = await readJsonBody(request);
+        } catch {
+          sendJson(response, 400, { error: "Invalid JSON request." });
+          return;
+        }
+
+        const configuredFeedUrl =
+          process.env.RSS_VIEWER_FEED_URL || env.RSS_VIEWER_FEED_URL || "";
+        const requestedFeedUrl = String(payload.feedUrl || "").trim();
+        const feedUrl = requestedFeedUrl || configuredFeedUrl;
+        if (!feedUrl) {
+          sendJson(response, 400, {
+            error: "Set RSS_VIEWER_FEED_URL or enter a feed URL.",
+          });
+          return;
+        }
+
+        let upstreamUrl;
+        try {
+          upstreamUrl = new URL(feedUrl);
+        } catch {
+          sendJson(response, 400, { error: "Feed URL is invalid." });
+          return;
+        }
+
+        if (!["http:", "https:"].includes(upstreamUrl.protocol)) {
+          sendJson(response, 400, { error: "Feed URL must use HTTP or HTTPS." });
+          return;
+        }
+
+        const category = String(payload.category || "").trim();
+        const limit = Number.parseInt(String(payload.limit || ""), 10);
+        if (category) {
+          upstreamUrl.searchParams.set("category", category);
+        }
+        if (Number.isFinite(limit) && limit > 0) {
+          upstreamUrl.searchParams.set("limit", String(limit));
+        }
+
+        try {
+          const upstreamResponse = await fetch(upstreamUrl, {
+            headers: {
+              Accept: "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.5",
+              "User-Agent": "economist-rss-viewer/0.1",
+            },
+          });
+          const xml = await upstreamResponse.text();
+          if (!upstreamResponse.ok) {
+            sendJson(response, upstreamResponse.status, {
+              error: `Feed returned HTTP ${upstreamResponse.status}.`,
+              status: upstreamResponse.status,
+              sourceLabel: requestedFeedUrl
+                ? publicSourceLabel(upstreamUrl)
+                : "Configured feed",
+            });
+            return;
+          }
+
+          sendJson(response, 200, {
+            xml,
+            fetchedAt: new Date().toISOString(),
+            status: upstreamResponse.status,
+            sourceLabel: requestedFeedUrl
+              ? publicSourceLabel(upstreamUrl)
+              : "Configured feed",
+          });
+        } catch (error) {
+          sendJson(response, 502, {
+            error: error instanceof Error ? error.message : "Could not fetch feed.",
+          });
+        }
+      });
+    },
+  };
+}
+
+function readJsonBody(request) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    request.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 250_000) {
+        reject(new Error("Request body is too large."));
+        request.destroy();
+      }
+    });
+    request.on("end", () => {
+      if (!body.trim()) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(body));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
+function sendJson(response, statusCode, payload) {
+  const body = JSON.stringify(payload);
+  response.statusCode = statusCode;
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  response.setHeader("Content-Length", Buffer.byteLength(body));
+  response.end(body);
+}
+
+function publicSourceLabel(url) {
+  return `${url.origin}${url.pathname}`;
+}
