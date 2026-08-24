@@ -56,15 +56,7 @@ function FeedProvider({ children }) {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/feed", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nextRequest),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "Could not fetch feed.");
-      }
+      const payload = await fetchFeedPayload(nextRequest);
       const parsed = parseRss(payload.xml);
       setItems(parsed.items);
       setChannel(parsed.channel);
@@ -93,6 +85,44 @@ function FeedProvider({ children }) {
   );
 
   return <FeedContext.Provider value={value}>{children}</FeedContext.Provider>;
+}
+
+async function fetchFeedPayload(request) {
+  const explicitFeedUrl = String(request.feedUrl || "").trim();
+  const url = new URL("/api/feed", window.location.origin);
+  if (request.category) {
+    url.searchParams.set("category", request.category);
+  }
+  if (request.limit) {
+    url.searchParams.set("limit", request.limit);
+  }
+
+  const response = explicitFeedUrl
+    ? await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      })
+    : await fetch(url);
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || "Could not fetch feed.");
+    }
+    return payload;
+  }
+
+  const xml = await response.text();
+  if (!response.ok) {
+    throw new Error(`Feed returned HTTP ${response.status}.`);
+  }
+  return {
+    xml,
+    fetchedAt: new Date().toISOString(),
+    sourceLabel: "Configured feed",
+  };
 }
 
 function useFeed() {

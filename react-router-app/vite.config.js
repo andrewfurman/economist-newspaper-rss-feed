@@ -17,14 +17,14 @@ function rssProxyPlugin(env) {
     name: "economist-rss-viewer-proxy",
     configureServer(server) {
       server.middlewares.use("/api/feed", async (request, response) => {
-        if (request.method !== "POST") {
-          sendJson(response, 405, { error: "Use POST." });
+        if (!["GET", "POST"].includes(request.method || "")) {
+          sendJson(response, 405, { error: "Use GET or POST." });
           return;
         }
 
         let payload;
         try {
-          payload = await readJsonBody(request);
+          payload = await readFeedRequest(request);
         } catch {
           sendJson(response, 400, { error: "Invalid JSON request." });
           return;
@@ -97,6 +97,22 @@ function rssProxyPlugin(env) {
         }
       });
     },
+  };
+}
+
+async function readFeedRequest(request) {
+  const requestUrl = new URL(request.url || "/api/feed", "http://localhost");
+  if (request.method === "GET") {
+    return {
+      category: requestUrl.searchParams.get("category") || "",
+      limit: requestUrl.searchParams.get("limit") || "",
+    };
+  }
+  const payload = await readJsonBody(request);
+  return {
+    ...payload,
+    category: payload.category || requestUrl.searchParams.get("category") || "",
+    limit: payload.limit || requestUrl.searchParams.get("limit") || "",
   };
 }
 
