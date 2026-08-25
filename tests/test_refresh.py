@@ -17,6 +17,75 @@ from economist_rss.util import now_iso
 
 
 class RefreshRateLimitTests(unittest.TestCase):
+    def test_refresh_prioritizes_requested_historical_article_within_budget(self):
+        historical_url = "https://www.economist.com/leaders/1997/01/04/history"
+        recent_url = "https://www.economist.com/leaders/2026/08/24/recent"
+        fetched_urls = []
+
+        def fake_fetch_article(_store, article, _fetcher, _config):
+            fetched_urls.append(article.url)
+            return refresh_module.ArticleFetchResult(
+                content=ArticleContent(
+                    title=article.title,
+                    content_html="<p>Full historical text</p>",
+                    text="Full historical text",
+                    method="test",
+                ),
+                source="test",
+                status="ok",
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "articles.sqlite3"
+            config = AppConfig(
+                feeds=[],
+                database_path=str(database_path),
+                max_articles_per_refresh=1,
+                article_lookback_days=30,
+                min_article_delay_seconds=0,
+                max_article_delay_seconds=0,
+                world_in_brief_enabled=False,
+                current_issue_filter_enabled=False,
+            )
+            with ArticleStore(database_path) as store:
+                historical = store.upsert_feed_item(
+                    FeedItem(
+                        title="Historical",
+                        link=historical_url,
+                        guid="historical",
+                        published="Sat, 04 Jan 1997 12:00:00 +0000",
+                    )
+                )
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="Recent",
+                        link=recent_url,
+                        guid="recent",
+                        published="Mon, 24 Aug 2026 12:00:00 +0000",
+                    )
+                )
+                store.request_article_fetch(historical.url)
+
+                import economist_rss.refresh as refresh_module
+
+                original_fetch_article = refresh_module._fetch_article
+                refresh_module._fetch_article = fake_fetch_article
+                try:
+                    summary = refresh(store, config, force=False)
+                finally:
+                    refresh_module._fetch_article = original_fetch_article
+
+                completed = store.get_article(historical_url)
+                recent = store.get_article(recent_url)
+
+            self.assertEqual(summary.articles_fetched, 1)
+            self.assertEqual(fetched_urls, [historical_url])
+            assert completed is not None
+            assert recent is not None
+            self.assertIsNone(completed.fetch_requested_at)
+            self.assertEqual(completed.content_status, "ok")
+            self.assertIsNone(recent.content_status)
+
     def test_refresh_records_current_issue_metadata_and_articles(self):
         issue_url = "https://www.economist.com/weeklyedition/2026-06-27"
         article_url = "https://www.economist.com/leaders/2026/06/24/issue-story"

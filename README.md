@@ -214,6 +214,79 @@ economist-rss rebuild-index --env-file real.env --config feeds.toml
 The default feed remains limited to the latest issue plus newer online
 exclusives when none of `q`, `start_date`, or `end_date` is present.
 
+## JSON API
+
+The HTTP server exposes a private JSON API alongside the RSS routes. Read
+requests accept the same `ECONOMIST_FEED_TOKEN` bearer header or `token` query
+parameter as the RSS feed. API responses contain metadata and at most a
+320-character plain-text snippet; they never include `content_html` or the full
+`content_text` field.
+
+All API searches are cache-only. The service does not contact The Economist in
+response to a search or list request. Here, "feed metadata" means the cached
+union populated by the configured Economist RSS feeds and weekly-edition
+catalog discovery, not a live publisher search endpoint.
+
+Search the local full-text index first, then fill the remaining result limit
+from title, description, and category matches in cached feed metadata:
+
+```text
+GET /api/search?q=Iran&start_date=1997-01-01&end_date=1999-12-31&category=Asia&limit=50
+```
+
+`scope=all` is the default. It returns local full-text matches first and feed
+metadata matches second, with newest-first ordering inside each group. Use
+`scope=local` for cached full-text matches only, or `scope=feed` (also accepted
+as `scope=rss`) to search only titles, descriptions, and categories. Even local
+matches return snippets rather than article bodies.
+
+List or search all cached article metadata with offset pagination:
+
+```text
+GET /api/articles?limit=100&offset=0
+GET /api/articles?q=Iran&start_date=1997-01-01&end_date=1999-12-31&limit=100&offset=0
+```
+
+Results are newest first. Responses include `has_more` and `next_offset`; both
+`limit` and search results are capped at 500 records per response. Keyword,
+date, and category rules match the searchable RSS catalog, except this endpoint
+searches snippet metadata rather than full article bodies.
+
+Each result reports `full_text_available`, a token-free relative `status_url`,
+and, when ready, a token-free relative `full_text_url`. Supply authentication
+when following either URL. Poll an article without returning its body:
+
+```text
+GET /api/articles/status?guid=article-guid
+```
+
+Request a full-text fetch for one metadata record already known to SQLite:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/articles/fetch \
+  -H 'Authorization: Bearer your-separate-refresh-token' \
+  -H 'Content-Type: application/json' \
+  --data '{"url":"https://www.economist.com/example-section/1999/01/01/example"}'
+```
+
+The write route requires `ECONOMIST_REFRESH_TOKEN` as a bearer header. It does
+not accept that token in the URL. Unknown URLs and non-Economist URLs are
+rejected, which prevents the endpoint from becoming an arbitrary URL fetcher.
+A cached article returns HTTP 200 with `status: ready`; an uncached article
+returns HTTP 202 with `status: queued`.
+
+Queued requests are durable SQLite state. The existing sequential refresh
+worker tries requested historical articles before ordinary recent backfill,
+while keeping the same total `max_articles_per_refresh`, randomized delay,
+failure backoff, challenge detection, and stop rules. Repeated requests for the
+same canonical URL increment an audit counter but do not create duplicate queue
+rows. A successful fetch clears the pending request and makes the plain text
+available through `/article.txt`.
+
+The API cannot fetch an article that has not first been discovered through an
+RSS feed or weekly-edition catalog discovery. Use the catalog discovery command
+below to extend the searchable historical metadata set gradually.
+
 ## Catalog Backfill
 
 The Economist [currently describes its searchable digital archive](https://www.economist.com/pro/features)
@@ -279,6 +352,7 @@ ECONOMIST_EMAIL=you@example.com
 ECONOMIST_PASSWORD=your-password
 ECONOMIST_BROWSER_FETCH_ENABLED=true
 ECONOMIST_FEED_TOKEN=long-random-token-for-rss-reader
+ECONOMIST_REFRESH_TOKEN=different-long-random-token-for-write-requests
 ```
 
 Authenticate and save browser state:
@@ -360,6 +434,8 @@ The defaults intentionally behave like a patient human subscriber:
 - one article request at a time
 - randomized 75-180 second delay between article fetches
 - maximum five new article downloads per refresh
+- requested historical articles consume that same five-article budget and are
+  attempted before ordinary recent backfill
 - hard 180-second timeout around each browser article fetch
 - maximum 60 article-page fetches per hour during this trial
 - World in Brief browser refresh at most once per hour
