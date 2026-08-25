@@ -11,7 +11,7 @@ export function buildApiFeedUrl(request, origin = window.location.origin) {
   return url;
 }
 
-export function searchRequestFromParams(searchParams, defaultLimit = 100) {
+export function searchRequestFromParams(searchParams, defaultLimit = 200) {
   return {
     q: searchParams.get("q") || "",
     start_date: searchParams.get("start_date") || "",
@@ -36,6 +36,23 @@ export function hasCatalogSearch(request) {
   return Boolean(
     String(request.q || "").trim() ||
       String(request.start_date || "").trim() ||
-      String(request.end_date || "").trim()
+      String(request.end_date || "").trim() ||
+      String(request.category || "").trim()
   );
+}
+
+export function buildArticleTextUrl(item, origin = window.location.origin) {
+  const url = new URL("/api/article-text", origin);
+  const link = String(item.link || "").trim();
+  const guid = String(item.guid || "").trim();
+  if (link) {
+    url.searchParams.set("url", link);
+  } else if (guid) {
+    url.searchParams.set("guid", guid);
+  }
+  return url;
+}
+
+export function buildStatsUrl(origin = window.location.origin) {
+  return new URL("/api/stats", origin);
 }

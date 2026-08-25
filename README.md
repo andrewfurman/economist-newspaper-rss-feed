@@ -252,6 +252,19 @@ Results are newest first. Responses include `has_more` and `next_offset`; both
 date, and category rules match the searchable RSS catalog, except this endpoint
 searches snippet metadata rather than full article bodies.
 
+Inspect aggregate database state:
+
+```text
+GET /api/stats
+```
+
+The stats response includes total, full-text, metadata-only, and queued article
+counts; full-text coverage; earliest and latest publication timestamps; every
+stored section with its article count; catalog discovery totals; and the last
+refresh and current-issue state. Counts describe the complete SQLite catalog,
+not only the current default RSS window. No article body or credential is
+included.
+
 Each result reports `full_text_available`, a token-free relative `status_url`,
 and, when ready, a token-free relative `full_text_url`. Supply authentication
 when following either URL. Poll an article without returning its body:

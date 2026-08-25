@@ -56,6 +56,7 @@ class EconomistRssServer:
                     "/api/search",
                     "/api/articles",
                     "/api/articles/status",
+                    "/api/stats",
                 }:
                     if not _authorized(
                         self.headers.get("Authorization", ""),
@@ -65,7 +66,10 @@ class EconomistRssServer:
                         self._send_json({"error": "unauthorized"}, status=401)
                         return
                     try:
-                        if parsed.path == "/api/search":
+                        if parsed.path == "/api/stats":
+                            payload = _api_stats_response(owner.config)
+                            status = 200
+                        elif parsed.path == "/api/search":
                             payload = _api_search_response(owner.config, parsed.query)
                             status = 200
                         elif parsed.path == "/api/articles":
@@ -415,6 +419,72 @@ def _api_articles_response(config: AppConfig, query: str) -> dict[str, object]:
         ],
         "cache_last_refreshed_at": last_refresh_at,
     }
+
+
+def _api_stats_response(config: AppConfig) -> dict[str, object]:
+    with ArticleStore(config.database_path) as store:
+        stats = store.catalog_stats()
+        categories = store.category_stats()
+        content_statuses = store.content_status_counts()
+        queued_count = store.queued_article_count()
+        last_refresh_at = store.get_state("last_refresh_at")
+        last_refresh_stop_reason = store.get_state("last_refresh_stop_reason")
+        current_issue_id = store.get_state("current_issue_id")
+        current_issue_date = store.get_state("current_issue_date")
+        current_issue_article_count = store.get_state(
+            "current_issue_article_count"
+        )
+        catalog_last_discovery_at = store.get_state("catalog_last_discovery_at")
+        fts5_enabled = store.search_index_enabled
+
+    coverage = (
+        round((stats.full_text_count / stats.article_count) * 100, 1)
+        if stats.article_count
+        else 0.0
+    )
+    return {
+        "articles": {
+            "total": stats.article_count,
+            "full_text": stats.full_text_count,
+            "metadata_only": stats.metadata_only_count,
+            "queued": queued_count,
+            "full_text_coverage_percent": coverage,
+            "earliest_published_at": stats.earliest_published_at,
+            "latest_published_at": stats.latest_published_at,
+            "content_statuses": content_statuses,
+        },
+        "sections": {
+            "total": len(categories),
+            "values": [
+                {"name": category.name, "article_count": category.article_count}
+                for category in categories
+            ],
+        },
+        "catalog": {
+            "fts5_enabled": fts5_enabled,
+            "issues_discovered": stats.issues_discovered,
+            "issues_failed": stats.issues_failed,
+            "last_discovery_at": catalog_last_discovery_at,
+        },
+        "refresh": {
+            "last_refresh_at": last_refresh_at,
+            "last_stop_reason": last_refresh_stop_reason or None,
+            "current_issue_id": current_issue_id,
+            "current_issue_date": current_issue_date,
+            "current_issue_article_count": _optional_int(
+                current_issue_article_count
+            ),
+        },
+    }
+
+
+def _optional_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def _api_article_status_response(
