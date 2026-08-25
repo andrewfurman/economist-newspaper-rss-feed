@@ -56,13 +56,20 @@ class ArticleFetchResult:
     stop_reason: str = ""
 
 
+@dataclass(frozen=True)
+class ArticleBatchSummary:
+    fetched: int
+    failed: int
+    stop_reason: str = ""
+
+
 def refresh_if_stale(
     config: AppConfig,
     *,
     force: bool = False,
     ignore_refresh_interval: bool = False,
 ) -> RefreshSummary:
-    with _refresh_lock(config.database_path) as lock_acquired:
+    with refresh_lock(config.database_path) as lock_acquired:
         if not lock_acquired:
             return RefreshSummary(
                 status="skipped",
@@ -152,18 +159,66 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
         force=force,
     )
 
+    batch = fetch_article_batch(
+        store,
+        config,
+        candidates,
+        fetcher=fetcher,
+        force=force,
+        run_id=run_id,
+        run_kind="latest_refresh",
+        stop_state_key="last_refresh_stop_reason",
+    )
+    articles_fetched += batch.fetched
+    articles_failed += batch.failed
+    stop_reason = stop_reason or batch.stop_reason
+
+    store.set_state("last_refresh_at", now_iso())
+    return RefreshSummary(
+        status="ok",
+        feeds_checked=feeds_checked,
+        feed_items_seen=feed_items_seen,
+        articles_fetched=articles_fetched,
+        articles_failed=articles_failed,
+        stop_reason=stop_reason,
+    )
+
+
+def fetch_article_batch(
+    store: ArticleStore,
+    config: AppConfig,
+    candidates: list[StoredArticle],
+    *,
+    fetcher: Fetcher | None = None,
+    force: bool = False,
+    run_id: str | None = None,
+    run_kind: str = "article_backfill",
+    stop_state_key: str = "last_backfill_stop_reason",
+) -> ArticleBatchSummary:
+    resolved_fetcher = fetcher or Fetcher(
+        user_agent=config.user_agent,
+        timeout_seconds=config.timeout_seconds,
+    )
+    resolved_run_id = run_id or datetime.now(timezone.utc).strftime(
+        "%Y%m%dT%H%M%S.%fZ"
+    )
+    fetched = 0
+    failed = 0
+    stop_reason = ""
+
     for index, article in enumerate(candidates):
         started_at = time.monotonic()
         _log_article_fetch(
             "article_fetch_start",
             article,
-            run_id=run_id,
+            run_id=resolved_run_id,
+            run_kind=run_kind,
             queue_index=index + 1,
             queue_size=len(candidates),
             force=force,
             attempt_count_before=article.attempt_count,
         )
-        result = _fetch_article(store, article, fetcher, config)
+        result = _fetch_article(store, article, resolved_fetcher, config)
         if result.content:
             store.save_article_content(
                 article,
@@ -171,17 +226,18 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
                 content_text=result.content.text,
                 content_source=result.source,
             )
-            articles_fetched += 1
+            fetched += 1
         else:
-            articles_failed += 1
+            failed += 1
             if result.stop_refresh:
                 stop_reason = result.stop_reason
-                store.set_state("last_refresh_stop_reason", result.stop_reason)
+                store.set_state(stop_state_key, result.stop_reason)
 
         _log_article_fetch(
             "article_fetch_result",
             article,
-            run_id=run_id,
+            run_id=resolved_run_id,
+            run_kind=run_kind,
             queue_index=index + 1,
             queue_size=len(candidates),
             force=force,
@@ -201,15 +257,11 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
             break
 
         if index < len(candidates) - 1 and not result.stop_refresh:
-            _polite_delay(config)
+            polite_delay(config)
 
-    store.set_state("last_refresh_at", now_iso())
-    return RefreshSummary(
-        status="ok",
-        feeds_checked=feeds_checked,
-        feed_items_seen=feed_items_seen,
-        articles_fetched=articles_fetched,
-        articles_failed=articles_failed,
+    return ArticleBatchSummary(
+        fetched=fetched,
+        failed=failed,
         stop_reason=stop_reason,
     )
 
@@ -617,7 +669,7 @@ def _recent_feed_items(
     return recent
 
 
-def _polite_delay(config: AppConfig) -> None:
+def polite_delay(config: AppConfig) -> None:
     low = max(0.0, config.min_article_delay_seconds)
     high = max(low, config.max_article_delay_seconds)
     time.sleep(random.uniform(low, high))
@@ -670,7 +722,7 @@ def _text_summary(text: str, *, limit: int = 320) -> str:
 
 
 @contextmanager
-def _refresh_lock(database_path: str):
+def refresh_lock(database_path: str):
     lock_path = Path(database_path).with_suffix(Path(database_path).suffix + ".refresh.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("w", encoding="utf-8") as lock_file:

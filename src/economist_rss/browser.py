@@ -23,6 +23,127 @@ class BrowserResult:
     article: ArticleContent | None = None
 
 
+@dataclass(frozen=True)
+class BrowserPageResult:
+    ok: bool
+    status: str
+    message: str
+    url: str
+    final_url: str
+    http_status: int | None = None
+    html: str = ""
+
+
+def fetch_html_with_browser(url: str, config: AppConfig) -> BrowserPageResult:
+    """Load a metadata page with the saved browser session without extracting an article."""
+    sync_playwright = _sync_playwright()
+    storage_state = Path(config.browser_storage_state)
+    user_data_dir = Path(config.browser_user_data_dir) if config.browser_user_data_dir else None
+
+    with sync_playwright() as playwright:
+        context = None
+        browser = None
+        try:
+            launch_options: dict[str, Any] = {
+                "headless": config.browser_headless,
+                "args": [
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                ],
+            }
+            if os.environ.get("ECONOMIST_BROWSER_NO_SANDBOX", "true").lower() == "true":
+                launch_options["args"].append("--no-sandbox")
+            if config.browser_executable_path:
+                launch_options["executable_path"] = config.browser_executable_path
+            elif config.browser_channel:
+                launch_options["channel"] = config.browser_channel
+
+            if user_data_dir is not None:
+                user_data_dir.mkdir(parents=True, exist_ok=True)
+                context = playwright.chromium.launch_persistent_context(
+                    str(user_data_dir),
+                    **launch_options,
+                    viewport={"width": 1365, "height": 900},
+                    locale="en-US",
+                    timezone_id=os.environ.get("TZ", "America/Los_Angeles"),
+                )
+                _close_existing_pages(context)
+            else:
+                browser = playwright.chromium.launch(**launch_options)
+                context_options: dict[str, Any] = {
+                    "viewport": {"width": 1365, "height": 900},
+                    "locale": "en-US",
+                    "timezone_id": os.environ.get("TZ", "America/Los_Angeles"),
+                }
+                if storage_state.exists():
+                    context_options["storage_state"] = str(storage_state)
+                context = browser.new_context(**context_options)
+
+            page = context.new_page()
+            page.set_default_timeout(45_000)
+            page.set_default_navigation_timeout(45_000)
+            response = page.goto(url, wait_until="domcontentloaded")
+            _wait_for_load_settled(page, timeout=5_000)
+            page.wait_for_timeout(config.browser_wait_ms)
+            html = page.content()
+            final_url = page.url
+            http_status = response.status if response else 0
+            storage_state.parent.mkdir(parents=True, exist_ok=True)
+            context.storage_state(path=str(storage_state))
+
+            if is_cloudflare_challenge(html):
+                return BrowserPageResult(
+                    ok=False,
+                    status="cloudflare_challenge",
+                    message="The browser returned a Cloudflare challenge page.",
+                    url=url,
+                    final_url=final_url,
+                    http_status=http_status,
+                )
+            if http_status in {403, 429}:
+                return BrowserPageResult(
+                    ok=False,
+                    status="rate_limited",
+                    message=f"The browser returned HTTP {http_status}.",
+                    url=url,
+                    final_url=final_url,
+                    http_status=http_status,
+                )
+            if http_status >= 400:
+                return BrowserPageResult(
+                    ok=False,
+                    status="not_found" if http_status == 404 else "fetch_failed",
+                    message=f"The browser returned HTTP {http_status}.",
+                    url=url,
+                    final_url=final_url,
+                    http_status=http_status,
+                )
+            return BrowserPageResult(
+                ok=True,
+                status="ok",
+                message="Fetched metadata page with authenticated browser.",
+                url=url,
+                final_url=final_url,
+                http_status=http_status,
+                html=html,
+            )
+        except Exception as exc:  # noqa: BLE001 - Playwright wraps browser failures broadly.
+            return BrowserPageResult(
+                ok=False,
+                status="browser_fetch_failed",
+                message=str(exc),
+                url=url,
+                final_url=url,
+            )
+        finally:
+            if context is not None:
+                context.close()
+            if browser is not None:
+                browser.close()
+
+
 def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
     sync_playwright = _sync_playwright()
     storage_state = Path(config.browser_storage_state)
