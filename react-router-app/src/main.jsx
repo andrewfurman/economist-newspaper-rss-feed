@@ -1,31 +1,60 @@
-import React, { createContext, useContext, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import {
   Link,
+  NavLink,
+  Navigate,
   Outlet,
   RouterProvider,
   createBrowserRouter,
+  useLocation,
   useParams,
+  useSearchParams,
 } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowUpDown,
+  Braces,
   ExternalLink,
+  FileText,
   RefreshCw,
   Search,
 } from "lucide-react";
+
+import {
+  buildApiFeedUrl,
+  hasCatalogSearch,
+  searchParamsFromRequest,
+  searchRequestFromParams,
+} from "./feed-request.js";
 import "./styles.css";
 
 const FeedContext = createContext(null);
-
 const DEFAULT_LIMIT = 100;
+const DEFAULT_REQUEST = {
+  feedUrl: "",
+  q: "",
+  start_date: "",
+  end_date: "",
+  category: "",
+  limit: DEFAULT_LIMIT,
+};
 
 const router = createBrowserRouter([
   {
     path: "/",
     element: <AppShell />,
     children: [
-      { index: true, element: <FeedTablePage /> },
+      { index: true, element: <Navigate to="/recent" replace /> },
+      { path: "raw", element: <RawFeedPage /> },
+      { path: "recent", element: <RecentArticlesPage /> },
+      { path: "search", element: <CatalogSearchPage /> },
       { path: "stories/:storyId", element: <StoryDetailPage /> },
     ],
   },
@@ -42,28 +71,35 @@ createRoot(document.getElementById("root")).render(
 function FeedProvider({ children }) {
   const [items, setItems] = useState([]);
   const [channel, setChannel] = useState(null);
+  const [rawXml, setRawXml] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sourceLabel, setSourceLabel] = useState("");
   const [fetchedAt, setFetchedAt] = useState("");
-  const [request, setRequest] = useState({
-    feedUrl: "",
-    category: "",
-    limit: DEFAULT_LIMIT,
-  });
+  const [request, setRequest] = useState(DEFAULT_REQUEST);
 
   async function loadFeed(nextRequest = request) {
+    const normalizedRequest = { ...DEFAULT_REQUEST, ...nextRequest };
+    setRequest(normalizedRequest);
     setLoading(true);
     setError("");
+    setItems([]);
+    setChannel(null);
+    setRawXml("");
     try {
-      const payload = await fetchFeedPayload(nextRequest);
+      const payload = await fetchFeedPayload(normalizedRequest);
       const parsed = parseRss(payload.xml);
+      setRawXml(payload.xml);
       setItems(parsed.items);
       setChannel(parsed.channel);
       setSourceLabel(payload.sourceLabel || "");
       setFetchedAt(payload.fetchedAt || "");
+      return parsed;
     } catch (fetchError) {
-      setError(fetchError instanceof Error ? fetchError.message : "Could not fetch feed.");
+      setError(
+        fetchError instanceof Error ? fetchError.message : "Could not fetch feed."
+      );
+      return null;
     } finally {
       setLoading(false);
     }
@@ -77,11 +113,11 @@ function FeedProvider({ children }) {
       items,
       loadFeed,
       loading,
+      rawXml,
       request,
-      setRequest,
       sourceLabel,
     }),
-    [channel, error, fetchedAt, items, loading, request, sourceLabel]
+    [channel, error, fetchedAt, items, loading, rawXml, request, sourceLabel]
   );
 
   return <FeedContext.Provider value={value}>{children}</FeedContext.Provider>;
@@ -89,14 +125,7 @@ function FeedProvider({ children }) {
 
 async function fetchFeedPayload(request) {
   const explicitFeedUrl = String(request.feedUrl || "").trim();
-  const url = new URL("/api/feed", window.location.origin);
-  if (request.category) {
-    url.searchParams.set("category", request.category);
-  }
-  if (request.limit) {
-    url.searchParams.set("limit", request.limit);
-  }
-
+  const url = buildApiFeedUrl(request);
   const response = explicitFeedUrl
     ? await fetch(url, {
         method: "POST",
@@ -137,10 +166,24 @@ function AppShell() {
   return (
     <main>
       <header className="topbar">
-        <div>
-          <p className="eyebrow">RSS inspector</p>
-          <h1>Economist feed viewer</h1>
+        <div className="brand-block">
+          <p className="eyebrow">Private RSS reader</p>
+          <h1>The Economist</h1>
         </div>
+        <nav className="tabs" aria-label="Reader views">
+          <NavLink to="/raw">
+            <Braces size={17} />
+            Raw RSS
+          </NavLink>
+          <NavLink to="/recent">
+            <FileText size={17} />
+            Recent articles
+          </NavLink>
+          <NavLink to="/search">
+            <Search size={17} />
+            Search
+          </NavLink>
+        </nav>
       </header>
       <div className="page-shell">
         <Outlet />
@@ -149,64 +192,201 @@ function AppShell() {
   );
 }
 
-function FeedTablePage() {
-  const {
-    channel,
-    error,
-    fetchedAt,
-    items,
-    loadFeed,
-    loading,
-    request,
-    setRequest,
-    sourceLabel,
-  } = useFeed();
-  const [query, setQuery] = useState("");
-  const [localCategory, setLocalCategory] = useState("");
-  const [sort, setSort] = useState({ key: "publishedAt", direction: "desc" });
+function RawFeedPage() {
+  const { channel, error, items, loadFeed, loading, rawXml } = useFeed();
+  const [request, setRequest] = useState({ category: "", limit: DEFAULT_LIMIT });
+  const [format, setFormat] = useState("formatted");
+  const loaded = useRef(false);
 
   React.useEffect(() => {
-    if (!items.length && !loading && !error) {
-      loadFeed();
+    if (!loaded.current) {
+      loaded.current = true;
+      loadFeed(request);
+    }
+  }, []);
+
+  return (
+    <section className="view-layout">
+      <ViewHeader eyebrow="RSS document" title="Raw RSS feed">
+        <div className="segmented" aria-label="XML formatting">
+          <button
+            className={format === "formatted" ? "active" : ""}
+            type="button"
+            onClick={() => setFormat("formatted")}
+          >
+            Formatted
+          </button>
+          <button
+            className={format === "raw" ? "active" : ""}
+            type="button"
+            onClick={() => setFormat("raw")}
+          >
+            Compact
+          </button>
+        </div>
+      </ViewHeader>
+      <FeedRequestToolbar
+        request={request}
+        setRequest={setRequest}
+        loading={loading}
+        onReload={() => loadFeed(request)}
+      />
+      <FeedSummary channel={channel} items={items} label="RSS items" />
+      {error ? <div className="error-banner">{error}</div> : null}
+      <pre className="raw-feed" aria-label="Raw RSS XML">
+        {loading && !rawXml
+          ? "Loading feed..."
+          : format === "formatted"
+            ? formatXml(rawXml)
+            : rawXml}
+      </pre>
+    </section>
+  );
+}
+
+function RecentArticlesPage() {
+  const { channel, error, items, loadFeed, loading } = useFeed();
+  const [request, setRequest] = useState({ category: "", limit: DEFAULT_LIMIT });
+  const [localQuery, setLocalQuery] = useState("");
+  const [localCategory, setLocalCategory] = useState("");
+  const loaded = useRef(false);
+
+  React.useEffect(() => {
+    if (!loaded.current) {
+      loaded.current = true;
+      loadFeed(request);
     }
   }, []);
 
   const categories = useMemo(() => uniqueCategories(items), [items]);
   const visibleItems = useMemo(
-    () => sortItems(filterItems(items, query, localCategory), sort),
-    [items, localCategory, query, sort]
+    () => filterItems(items, localQuery, localCategory),
+    [items, localCategory, localQuery]
   );
+
+  return (
+    <section className="view-layout">
+      <ViewHeader eyebrow="Current edition" title="Recent articles" />
+      <FeedRequestToolbar
+        request={request}
+        setRequest={setRequest}
+        loading={loading}
+        onReload={() => loadFeed(request)}
+      />
+      <FeedSummary channel={channel} items={items} shown={visibleItems.length} />
+      {error ? <div className="error-banner">{error}</div> : null}
+      <section className="filter-row" aria-label="Table filters">
+        <label className="search-field">
+          <Search size={16} />
+          <input
+            value={localQuery}
+            onChange={(event) => setLocalQuery(event.target.value)}
+            placeholder="Filter loaded articles"
+          />
+        </label>
+        <label>
+          <span>Section</span>
+          <select
+            value={localCategory}
+            onChange={(event) => setLocalCategory(event.target.value)}
+          >
+            <option value="">All sections</option>
+            {categories.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </select>
+        </label>
+      </section>
+      <StoryTable
+        items={visibleItems}
+        loading={loading}
+        returnTo="/recent"
+        emptyMessage="No recent articles match the current filters."
+      />
+    </section>
+  );
+}
+
+function CatalogSearchPage() {
+  const { channel, error, items, loadFeed, loading } = useFeed();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [request, setRequest] = useState(() =>
+    searchRequestFromParams(searchParams, DEFAULT_LIMIT)
+  );
+  const [formError, setFormError] = useState("");
+  const searchKey = searchParams.toString();
+  const searched = hasCatalogSearch(searchRequestFromParams(searchParams));
+
+  React.useEffect(() => {
+    const nextRequest = searchRequestFromParams(searchParams, DEFAULT_LIMIT);
+    setRequest(nextRequest);
+    if (hasCatalogSearch(nextRequest)) {
+      loadFeed(nextRequest);
+    }
+  }, [searchKey]);
+
+  function submitSearch(event) {
+    event.preventDefault();
+    if (!hasCatalogSearch(request)) {
+      setFormError("Enter keywords or a start or end date.");
+      return;
+    }
+    if (
+      request.start_date &&
+      request.end_date &&
+      request.start_date > request.end_date
+    ) {
+      setFormError("Start date must be on or before end date.");
+      return;
+    }
+    setFormError("");
+    setSearchParams(searchParamsFromRequest(request));
+  }
 
   function updateRequest(key, value) {
     setRequest((current) => ({ ...current, [key]: value }));
   }
 
-  function toggleSort(key) {
-    setSort((current) => ({
-      key,
-      direction:
-        current.key === key && current.direction === "asc" ? "desc" : "asc",
-    }));
-  }
-
+  const results = searched ? items : [];
   return (
-    <>
-      <section className="toolbar" aria-label="Feed request controls">
+    <section className="view-layout">
+      <ViewHeader eyebrow="Local catalog" title="Search articles" />
+      <form className="catalog-search" onSubmit={submitSearch}>
+        <label className="query-field">
+          <span>Keywords</span>
+          <div className="input-with-icon">
+            <Search size={17} />
+            <input
+              value={request.q}
+              onChange={(event) => updateRequest("q", event.target.value)}
+              placeholder="Iran"
+            />
+          </div>
+        </label>
         <label>
-          <span>Feed URL</span>
+          <span>Start date</span>
           <input
-            type="password"
-            value={request.feedUrl}
-            onChange={(event) => updateRequest("feedUrl", event.target.value)}
-            placeholder="Configured feed"
+            type="date"
+            value={request.start_date}
+            onChange={(event) => updateRequest("start_date", event.target.value)}
           />
         </label>
         <label>
-          <span>RSS category query</span>
+          <span>End date</span>
+          <input
+            type="date"
+            value={request.end_date}
+            onChange={(event) => updateRequest("end_date", event.target.value)}
+          />
+        </label>
+        <label>
+          <span>Section</span>
           <input
             value={request.category}
             onChange={(event) => updateRequest("category", event.target.value)}
-            placeholder="United States"
+            placeholder="All sections"
           />
         </label>
         <label className="small-field">
@@ -219,128 +399,185 @@ function FeedTablePage() {
             onChange={(event) => updateRequest("limit", event.target.value)}
           />
         </label>
-        <button
-          className="icon-button primary"
-          type="button"
-          onClick={() => loadFeed(request)}
-          disabled={loading}
-          title="Reload feed"
-          aria-label="Reload feed"
-        >
-          <RefreshCw size={18} />
+        <button className="command-button" type="submit" disabled={loading}>
+          <Search size={17} />
+          Search
         </button>
-      </section>
+      </form>
+      {formError ? <div className="error-banner">{formError}</div> : null}
+      {error ? <div className="error-banner">{error}</div> : null}
+      {searched ? (
+        <FeedSummary channel={channel} items={results} label="matches" />
+      ) : null}
+      <StoryTable
+        items={results}
+        loading={loading}
+        returnTo={`/search${searchKey ? `?${searchKey}` : ""}`}
+        emptyMessage={
+          searched ? "No catalog articles match this search." : "No search has been run."
+        }
+      />
+    </section>
+  );
+}
 
-      <section className="summary-band" aria-label="Feed summary">
+function ViewHeader({ children, eyebrow, title }) {
+  return (
+    <header className="view-header">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+      </div>
+      {children}
+    </header>
+  );
+}
+
+function FeedRequestToolbar({ loading, onReload, request, setRequest }) {
+  function updateRequest(key, value) {
+    setRequest((current) => ({ ...current, [key]: value }));
+  }
+
+  return (
+    <section className="toolbar compact-toolbar" aria-label="Feed request controls">
+      <label>
+        <span>RSS section query</span>
+        <input
+          value={request.category}
+          onChange={(event) => updateRequest("category", event.target.value)}
+          placeholder="All sections"
+        />
+      </label>
+      <label className="small-field">
+        <span>Limit</span>
+        <input
+          type="number"
+          min="1"
+          max="500"
+          value={request.limit}
+          onChange={(event) => updateRequest("limit", event.target.value)}
+        />
+      </label>
+      <button
+        className="icon-button primary"
+        type="button"
+        onClick={onReload}
+        disabled={loading}
+        title="Reload feed"
+        aria-label="Reload feed"
+      >
+        <RefreshCw size={18} />
+      </button>
+    </section>
+  );
+}
+
+function FeedSummary({ channel, items, label = "loaded", shown }) {
+  const categories = uniqueCategories(items);
+  return (
+    <section
+      className={shown === undefined ? "summary-band compact-summary" : "summary-band"}
+      aria-label="Feed summary"
+    >
+      {shown !== undefined ? (
         <div>
-          <span className="metric-value">{visibleItems.length}</span>
+          <span className="metric-value">{shown}</span>
           <span className="metric-label">shown</span>
         </div>
-        <div>
-          <span className="metric-value">{items.length}</span>
-          <span className="metric-label">loaded</span>
-        </div>
-        <div>
-          <span className="metric-value">{categories.length}</span>
-          <span className="metric-label">categories</span>
-        </div>
-        <div className="summary-copy">
-          <strong>{channel?.title || "Feed"}</strong>
-          <span>{sourceLabel || "Configured feed"}</span>
-          <span>{fetchedAt ? formatDateTime(fetchedAt) : ""}</span>
-        </div>
-      </section>
+      ) : null}
+      <div>
+        <span className="metric-value">{items.length}</span>
+        <span className="metric-label">{label}</span>
+      </div>
+      <div>
+        <span className="metric-value">{categories.length}</span>
+        <span className="metric-label">sections</span>
+      </div>
+      <div className="summary-copy">
+        <strong>{channel?.title || "RSS feed"}</strong>
+        <span>{channel?.description || ""}</span>
+      </div>
+    </section>
+  );
+}
 
-      {error ? <div className="error-banner">{error}</div> : null}
+function StoryTable({ emptyMessage, items, loading, returnTo }) {
+  const [sort, setSort] = useState({ key: "publishedAt", direction: "desc" });
+  const sortedItems = useMemo(() => sortItems(items, sort), [items, sort]);
 
-      <section className="filter-row" aria-label="Table filters">
-        <label className="search-field">
-          <Search size={16} />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search title, summary, link, category"
-          />
-        </label>
-        <label>
-          <span>Category</span>
-          <select
-            value={localCategory}
-            onChange={(event) => setLocalCategory(event.target.value)}
-          >
-            <option value="">All categories</option>
-            {categories.map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
+  function toggleSort(key) {
+    setSort((current) => ({
+      key,
+      direction:
+        current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  }
 
-      <section className="table-wrap" aria-label="Stories">
-        <table>
-          <thead>
-            <tr>
-              <SortableHeader
-                active={sort.key === "title"}
-                direction={sort.direction}
-                onClick={() => toggleSort("title")}
-              >
-                Story
-              </SortableHeader>
-              <SortableHeader
-                active={sort.key === "publishedAt"}
-                direction={sort.direction}
-                onClick={() => toggleSort("publishedAt")}
-              >
-                Published
-              </SortableHeader>
-              <SortableHeader
-                active={sort.key === "categoryText"}
-                direction={sort.direction}
-                onClick={() => toggleSort("categoryText")}
-              >
-                Section
-              </SortableHeader>
-              <SortableHeader
-                active={sort.key === "description"}
-                direction={sort.direction}
-                onClick={() => toggleSort("description")}
-              >
-                Description
-              </SortableHeader>
+  return (
+    <section className="table-wrap" aria-label="Stories">
+      <table>
+        <thead>
+          <tr>
+            <SortableHeader
+              active={sort.key === "title"}
+              direction={sort.direction}
+              onClick={() => toggleSort("title")}
+            >
+              Story
+            </SortableHeader>
+            <SortableHeader
+              active={sort.key === "publishedAt"}
+              direction={sort.direction}
+              onClick={() => toggleSort("publishedAt")}
+            >
+              Published
+            </SortableHeader>
+            <SortableHeader
+              active={sort.key === "categoryText"}
+              direction={sort.direction}
+              onClick={() => toggleSort("categoryText")}
+            >
+              Section
+            </SortableHeader>
+            <SortableHeader
+              active={sort.key === "description"}
+              direction={sort.direction}
+              onClick={() => toggleSort("description")}
+            >
+              Description
+            </SortableHeader>
+          </tr>
+        </thead>
+        <tbody>
+          {sortedItems.map((item) => (
+            <tr key={item.id}>
+              <td>
+                <div className="story-stack">
+                  <Link to={`/stories/${item.id}`} state={{ from: returnTo }}>
+                    {item.title}
+                  </Link>
+                  <span title={item.guid}>{item.guid}</span>
+                </div>
+              </td>
+              <td>{item.published ? formatDateTime(item.published) : "None"}</td>
+              <td>
+                <CategoryList categories={item.categories} />
+              </td>
+              <td>
+                <div className="description-preview">
+                  {item.description || "No description"}
+                </div>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {visibleItems.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  <div className="story-stack">
-                    <Link to={`/stories/${item.id}`}>{item.title}</Link>
-                    <span title={item.guid}>{item.guid}</span>
-                  </div>
-                </td>
-                <td>{item.published ? formatDateTime(item.published) : "None"}</td>
-                <td>
-                  <CategoryList categories={item.categories} />
-                </td>
-                <td>
-                  <div className="description-preview">
-                    {item.description || "No description"}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {!visibleItems.length ? (
-          <div className="empty-state">
-            {loading ? "Loading feed..." : "No stories match the current filters."}
-          </div>
-        ) : null}
-      </section>
-    </>
+          ))}
+        </tbody>
+      </table>
+      {!sortedItems.length ? (
+        <div className="empty-state">
+          {loading ? "Loading feed..." : emptyMessage}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -362,11 +599,15 @@ function SortableHeader({ active, children, direction, onClick }) {
 
 function StoryDetailPage() {
   const { storyId } = useParams();
+  const location = useLocation();
   const { items, loadFeed, loading, request } = useFeed();
   const item = items.find((candidate) => candidate.id === storyId);
+  const backTarget = location.state?.from || "/recent";
+  const loaded = useRef(false);
 
   React.useEffect(() => {
-    if (!items.length && !loading) {
+    if (!items.length && !loading && !loaded.current) {
+      loaded.current = true;
       loadFeed(request);
     }
   }, []);
@@ -374,9 +615,9 @@ function StoryDetailPage() {
   if (!item) {
     return (
       <section className="detail-layout">
-        <Link className="back-link" to="/">
+        <Link className="back-link" to={backTarget}>
           <ArrowLeft size={17} />
-          Stories
+          Articles
         </Link>
         <div className="empty-state">
           {loading ? "Loading story..." : "Story not found in the loaded feed."}
@@ -387,9 +628,9 @@ function StoryDetailPage() {
 
   return (
     <section className="detail-layout">
-      <Link className="back-link" to="/">
+      <Link className="back-link" to={backTarget}>
         <ArrowLeft size={17} />
-        Stories
+        Articles
       </Link>
       <header className="detail-header">
         <div>
@@ -409,7 +650,6 @@ function StoryDetailPage() {
           </a>
         ) : null}
       </header>
-
       <dl className="metadata-grid">
         <div>
           <dt>Published</dt>
@@ -428,12 +668,10 @@ function StoryDetailPage() {
           <dd>{item.categoryText || "None"}</dd>
         </div>
       </dl>
-
       <section className="detail-section">
         <h3>Description</h3>
         <p>{item.description || "No description in this RSS item."}</p>
       </section>
-
       <section className="detail-section">
         <h3>RSS fields</h3>
         <div className="field-list">
@@ -445,7 +683,6 @@ function StoryDetailPage() {
           ))}
         </div>
       </section>
-
       <section className="detail-section">
         <h3>Raw item XML</h3>
         <pre>{item.rawXml}</pre>
@@ -511,7 +748,6 @@ function parseRss(xmlText) {
       rawXml: serializer.serializeToString(node),
     };
   });
-
   return { channel, items };
 }
 
@@ -582,8 +818,33 @@ function sortItems(items, sort) {
     if (firstValue > secondValue) {
       return sort.direction === "asc" ? 1 : -1;
     }
-    return 0;
+    return String(second.id).localeCompare(String(first.id));
   });
+}
+
+function formatXml(xml) {
+  if (!xml) {
+    return "";
+  }
+  const lines = xml.replace(/>\s*</g, ">\n<").split("\n");
+  let depth = 0;
+  return lines
+    .map((line) => {
+      const trimmed = line.trim();
+      if (/^<\//.test(trimmed)) {
+        depth = Math.max(0, depth - 1);
+      }
+      const output = `${"  ".repeat(depth)}${trimmed}`;
+      if (
+        /^<[^!?/][^>]*>$/.test(trimmed) &&
+        !/<\/[^>]+>$/.test(trimmed) &&
+        !/\/>$/.test(trimmed)
+      ) {
+        depth += 1;
+      }
+      return output;
+    })
+    .join("\n");
 }
 
 function stableId(value) {

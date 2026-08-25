@@ -169,14 +169,86 @@ Use `limit` to request a smaller number of items, such as `limit=20` or
 configured `rss_item_limit`, which defaults to `500`.
 
 The default `/rss.xml` response is standard RSS 2.0. The optional HTTP
-query interface (`category=...`, `limit=...`, and `/rss/category/*.xml`) is the
-project's intentional extension beyond RSS 2.0, added so other projects and RSS
-readers can subscribe to section-specific or shorter feeds. The filtered and
-limited responses themselves are still standard RSS 2.0 documents.
+query interface (`q=...`, `start_date=...`, `end_date=...`, `category=...`,
+`limit=...`, and `/rss/category/*.xml`) is the project's intentional extension
+beyond RSS 2.0. It lets other projects request searches, date ranges,
+section-specific feeds, or shorter feeds. Every successful response is still a
+standard RSS 2.0 document.
 
 The `/article.txt` route is a separate authenticated HTTP endpoint, not part of
 the RSS payload. It exists so downstream tools can fetch the full cached article
 text only when needed while keeping `/rss.xml` small and RSS-reader compliant.
+
+## Searchable Catalog
+
+Supplying `q`, `start_date`, or `end_date` switches `/rss.xml` from the current
+issue view to local catalog search. Search covers article titles, descriptions,
+stored categories, and cached full text. Results are deterministic and newest
+first. Date boundaries are inclusive and use `YYYY-MM-DD`.
+
+```text
+GET /rss.xml?token=long-random-token-for-rss-reader&q=Iran
+GET /rss.xml?token=long-random-token-for-rss-reader&q=Iran&start_date=1997-01-01&end_date=1999-12-31&limit=100
+GET /rss.xml?token=long-random-token-for-rss-reader&start_date=2000-01-01&end_date=2009-12-31&category=Finance%20and%20Economics
+```
+
+`category` combines with keyword and date filters using AND. Repeated or
+comma-separated categories match any requested section. Multi-word keyword
+search requires all normalized terms. Invalid dates, inverted ranges, invalid
+limits, and keyword strings longer than 200 characters return HTTP 400.
+
+Catalog searches read SQLite only. They never refresh source feeds, open an
+Economist page, or consume the article-fetch budget. A metadata-only result can
+appear before its full text has been fetched; its original article `link` still
+works, while `/article.txt` returns 404 until `content_status` is `ok`.
+
+SQLite FTS5 indexes titles, descriptions, categories, and article text. The
+service keeps that index synchronized with article writes and falls back to a
+case-insensitive local scan when SQLite lacks FTS5. Rebuild it explicitly after
+database maintenance:
+
+```bash
+economist-rss rebuild-index --env-file real.env --config feeds.toml
+```
+
+The default feed remains limited to the latest issue plus newer online
+exclusives when none of `q`, `start_date`, or `end_date` is present.
+
+## Catalog Backfill
+
+The Economist [currently describes its searchable digital archive](https://www.economist.com/pro/features)
+as containing articles published since 1997. This project therefore defaults catalog
+discovery to `1997-01-04`; a 1990s request can only return locally discovered
+records from 1997 onward. Earlier date parameters are accepted, but this tool
+does not claim coverage that the subscriber archive does not expose.
+
+Metadata discovery is explicit and separate from full-text retrieval. It is
+not part of the normal five-minute refresh:
+
+```bash
+# Discover one not-yet-completed weekly edition, newest first.
+economist-rss catalog-discover --env-file real.env --config feeds.toml
+
+# Bound discovery to a period. One issue is still the default per-run budget.
+economist-rss catalog-discover --env-file real.env --config feeds.toml \
+  --start-date 1997-01-04 --end-date 1999-12-31 --max-issues 1
+
+# Fetch a small batch of article bodies already discovered in that period.
+economist-rss catalog-fetch --env-file real.env --config feeds.toml \
+  --start-date 1997-01-04 --end-date 1999-12-31 --max-articles 2
+
+economist-rss catalog-stats --env-file real.env --config feeds.toml
+```
+
+Discovery records every attempted issue in `catalog_issues`, including source,
+status, article count, attempt timestamps, completion time, and error. Completed
+issues are skipped on later runs, failed issues respect the configured retry
+backoff, and canonical article URLs remain unique in `articles`. A Cloudflare
+challenge or HTTP 403/429 stops the run immediately. `--max-issues` is capped at
+10; article-body backfill is capped by `max_articles_per_refresh` and uses the
+same sequential delays, retry policy, logging, browser timeout, and stop rules
+as normal refreshes. Do not schedule catalog discovery on the five-minute
+latest-news timer.
 
 ## Files
 

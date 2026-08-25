@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import format_datetime
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -11,6 +11,151 @@ from economist_rss.store import ArticleStore
 
 
 class ArticleStoreTests(unittest.TestCase):
+    def test_catalog_search_matches_indexed_fields_and_sorts_newest_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                title_match = store.upsert_feed_item(
+                    FeedItem(
+                        title="Iran changes its economic strategy",
+                        link="https://www.economist.com/finance-and-economics/1999/12/31/iran-strategy",
+                        guid="iran-title",
+                        summary="A regional policy shift",
+                        published="Fri, 31 Dec 1999 12:00:00 +0000",
+                        categories=["Finance and Economics"],
+                    )
+                )
+                content_match = store.upsert_feed_item(
+                    FeedItem(
+                        title="A difficult diplomatic bargain",
+                        link="https://www.economist.com/middle-east-and-africa/1998/01/02/bargain",
+                        guid="iran-content",
+                        summary="Negotiators return to the table",
+                        published="Fri, 02 Jan 1998 12:00:00 +0000",
+                        categories=["Middle East and Africa"],
+                    )
+                )
+                store.save_article_content(
+                    title_match,
+                    content_html="<p>Economic policy</p>",
+                    content_text="Economic policy",
+                    content_source="test",
+                )
+                store.save_article_content(
+                    content_match,
+                    content_html="<p>Iran nuclear negotiations</p>",
+                    content_text="Iran nuclear negotiations",
+                    content_source="test",
+                )
+
+                items = store.search_items(query="Iran", limit=10)
+
+                self.assertTrue(store.search_index_enabled)
+                self.assertEqual(
+                    [item.guid for item in items],
+                    ["iran-title", "iran-content"],
+                )
+
+    def test_catalog_search_supports_inclusive_dates_categories_and_metadata_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="Start boundary",
+                        link="https://www.economist.com/asia/1990/01/01/start",
+                        guid="start",
+                        summary="Iran at the start of the decade",
+                        published="Mon, 01 Jan 1990 00:00:00 +0000",
+                        categories=["Asia"],
+                    )
+                )
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="End boundary",
+                        link="https://www.economist.com/asia/1999/12/31/end",
+                        guid="end",
+                        summary="Iran at the end of the decade",
+                        published="Fri, 31 Dec 1999 23:59:59 +0000",
+                        categories=["Asia"],
+                    )
+                )
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="Outside category",
+                        link="https://www.economist.com/europe/1999/01/01/outside",
+                        guid="outside",
+                        summary="Iran in Europe",
+                        published="Fri, 01 Jan 1999 12:00:00 +0000",
+                        categories=["Europe"],
+                    )
+                )
+
+                items = store.search_items(
+                    query="Iran!",
+                    start_date=date(1990, 1, 1),
+                    end_date=date(1999, 12, 31),
+                    categories=["asia"],
+                    limit=10,
+                )
+
+                self.assertEqual([item.guid for item in items], ["end", "start"])
+
+    def test_catalog_search_index_rebuild_and_fallback_return_same_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="Sanctions and diplomacy",
+                        link="https://www.economist.com/leaders/1995/06/01/sanctions",
+                        guid="sanctions",
+                        summary="Policy towards Iran",
+                        published="Thu, 01 Jun 1995 12:00:00 +0000",
+                    )
+                )
+                self.assertEqual(store.rebuild_search_index(), 1)
+                indexed = store.search_items(query="Iran", limit=10)
+                store.search_index_enabled = False
+                fallback = store.search_items(query="Iran", limit=10)
+
+                self.assertEqual([item.guid for item in indexed], ["sanctions"])
+                self.assertEqual([item.guid for item in fallback], ["sanctions"])
+
+    def test_catalog_search_ignores_possessive_punctuation_fragment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="Iran and the nuclear question",
+                        link="https://www.economist.com/leaders/2026/06/25/iran",
+                        guid="iran",
+                        published="Thu, 25 Jun 2026 12:00:00 +0000",
+                    )
+                )
+
+                results = store.search_items(query="Iran's", limit=10)
+
+            self.assertEqual([item.guid for item in results], ["iran"])
+
+    def test_url_categories_are_persisted_for_search(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                article = store.upsert_feed_item(
+                    FeedItem(
+                        title="A regional story",
+                        link="https://www.economist.com/asia/2026/06/25/story",
+                        guid="asia",
+                        published="Thu, 25 Jun 2026 12:00:00 +0000",
+                    )
+                )
+                results = store.search_items(query="Asia", limit=10)
+
+            self.assertEqual(article.categories, ["Asia"])
+            self.assertEqual([item.guid for item in results], ["asia"])
+
     def test_successful_article_is_not_pending_again(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "articles.sqlite3"

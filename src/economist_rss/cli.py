@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
+from datetime import date
+import json
 import logging
 import os
 from pathlib import Path
 import sys
 
 from .browser import authenticate_browser
+from .catalog import (
+    DIGITAL_ARCHIVE_START,
+    backfill_catalog_content,
+    discover_catalog,
+)
 from .config import AppConfig, FeedConfig, load_config
 from .env import load_env_file
 from .feed import build_rss
@@ -45,6 +53,59 @@ def main(argv: list[str] | None = None) -> int:
         result = authenticate_browser(config, manual_login=args.manual_login)
         print(f"{result.status}: {result.message}", file=sys.stderr)
         return 0 if result.ok else 1
+
+    if args.command == "rebuild-index":
+        with ArticleStore(config.database_path) as store:
+            count = store.rebuild_search_index()
+            enabled = store.search_index_enabled
+        print(
+            json.dumps(
+                {
+                    "fts5_enabled": enabled,
+                    "indexed_articles": count,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    if args.command == "catalog-stats":
+        with ArticleStore(config.database_path) as store:
+            stats = store.catalog_stats()
+            fts5_enabled = store.search_index_enabled
+        payload = {**asdict(stats), "fts5_enabled": fts5_enabled}
+        print(json.dumps(payload, sort_keys=True))
+        return 0
+
+    if args.command == "catalog-discover":
+        try:
+            summary = discover_catalog(
+                config,
+                start_date=args.start_date or DIGITAL_ARCHIVE_START,
+                end_date=args.end_date,
+                max_issues=args.max_issues,
+                force=args.force,
+            )
+        except ValueError as exc:
+            print(f"Catalog discovery error: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(asdict(summary), sort_keys=True))
+        return 0 if summary.status in {"ok", "skipped"} else 1
+
+    if args.command == "catalog-fetch":
+        try:
+            summary = backfill_catalog_content(
+                config,
+                start_date=args.start_date,
+                end_date=args.end_date,
+                max_articles=args.max_articles,
+                force=args.force,
+            )
+        except ValueError as exc:
+            print(f"Catalog content error: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(asdict(summary), sort_keys=True))
+        return 0 if summary.status in {"ok", "skipped"} else 1
 
     if args.command == "refresh":
         if not config.feeds:
@@ -107,7 +168,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["auth", "refresh", "build", "serve"],
+        choices=[
+            "auth",
+            "refresh",
+            "build",
+            "serve",
+            "rebuild-index",
+            "catalog-discover",
+            "catalog-fetch",
+            "catalog-stats",
+        ],
         help="Command to run. Defaults to build.",
     )
     parser.add_argument(
@@ -191,7 +261,44 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Open a visible browser and wait while you complete Economist login manually.",
     )
+    parser.add_argument(
+        "--start-date",
+        type=_date_argument,
+        default=None,
+        help=(
+            "Inclusive YYYY-MM-DD catalog boundary. Discovery defaults to "
+            f"{DIGITAL_ARCHIVE_START.isoformat()}."
+        ),
+    )
+    parser.add_argument(
+        "--end-date",
+        type=_date_argument,
+        default=None,
+        help="Inclusive YYYY-MM-DD catalog boundary. Defaults to today.",
+    )
+    parser.add_argument(
+        "--max-issues",
+        type=int,
+        default=1,
+        help="Maximum weekly-edition metadata pages to discover (1-10).",
+    )
+    parser.add_argument(
+        "--max-articles",
+        type=int,
+        default=None,
+        help=(
+            "Maximum catalog article bodies to fetch. Capped by "
+            "max_articles_per_refresh."
+        ),
+    )
     return parser
+
+
+def _date_argument(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("date must use YYYY-MM-DD") from exc
 
 
 def _configured_feeds(

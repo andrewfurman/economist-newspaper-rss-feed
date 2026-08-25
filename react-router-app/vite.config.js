@@ -1,6 +1,8 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 
+const FEED_QUERY_KEYS = ["q", "start_date", "end_date", "category", "limit"];
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
@@ -54,13 +56,11 @@ function rssProxyPlugin(env) {
           return;
         }
 
-        const category = String(payload.category || "").trim();
-        const limit = Number.parseInt(String(payload.limit || ""), 10);
-        if (category) {
-          upstreamUrl.searchParams.set("category", category);
-        }
-        if (Number.isFinite(limit) && limit > 0) {
-          upstreamUrl.searchParams.set("limit", String(limit));
+        for (const key of FEED_QUERY_KEYS) {
+          const value = String(payload[key] || "").trim();
+          if (value) {
+            upstreamUrl.searchParams.set(key, value);
+          }
         }
 
         try {
@@ -103,17 +103,22 @@ function rssProxyPlugin(env) {
 async function readFeedRequest(request) {
   const requestUrl = new URL(request.url || "/api/feed", "http://localhost");
   if (request.method === "GET") {
-    return {
-      category: requestUrl.searchParams.get("category") || "",
-      limit: requestUrl.searchParams.get("limit") || "",
-    };
+    return feedQueryFromSearchParams(requestUrl.searchParams);
   }
   const payload = await readJsonBody(request);
+  const query = feedQueryFromSearchParams(requestUrl.searchParams);
   return {
-    ...payload,
-    category: payload.category || requestUrl.searchParams.get("category") || "",
-    limit: payload.limit || requestUrl.searchParams.get("limit") || "",
+    feedUrl: payload.feedUrl || "",
+    ...Object.fromEntries(
+      FEED_QUERY_KEYS.map((key) => [key, payload[key] || query[key] || ""])
+    ),
   };
+}
+
+function feedQueryFromSearchParams(searchParams) {
+  return Object.fromEntries(
+    FEED_QUERY_KEYS.map((key) => [key, searchParams.get(key) || ""])
+  );
 }
 
 function readJsonBody(request) {

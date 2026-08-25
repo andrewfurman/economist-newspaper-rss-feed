@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from threading import Lock
@@ -13,6 +15,18 @@ from .util import cutoff_datetime
 
 CATEGORY_FEED_PREFIX = "/rss/category/"
 CATEGORY_FEED_SUFFIX = ".xml"
+MAX_RSS_ITEM_LIMIT = 500
+
+
+@dataclass(frozen=True)
+class CatalogSearchQuery:
+    query: str = ""
+    start_date: date | None = None
+    end_date: date | None = None
+
+    @property
+    def active(self) -> bool:
+        return bool(self.query or self.start_date or self.end_date)
 
 
 class EconomistRssServer:
@@ -66,44 +80,16 @@ class EconomistRssServer:
                     ):
                         self.send_error(401)
                         return
-                    with owner.lock:
-                        refresh_if_stale(owner.config)
-                    with ArticleStore(owner.config.database_path) as store:
-                        try:
-                            requested_limit = _rss_item_limit(
-                                parsed.query,
-                                owner.config.rss_item_limit,
-                            )
-                        except ValueError as exc:
-                            self.send_error(400, str(exc))
-                            return
-                        category_filters = _category_filters(parsed.query)
-                        if path_category:
-                            category_filters = _unique_casefolded(
-                                [path_category, *category_filters]
-                            )
-                        item_limit = None if category_filters else requested_limit
-                        feed_items = store.feed_items(
-                            limit=item_limit,
-                            published_after=cutoff_datetime(
-                                owner.config.article_lookback_days
-                            ),
-                            current_issue_only=(
-                                owner.config.current_issue_filter_enabled
-                            ),
+                    try:
+                        rss = _rss_response(
+                            owner.config,
+                            parsed.query,
+                            path_category=path_category,
+                            refresh_lock=owner.lock,
                         )
-                        if category_filters:
-                            feed_items = _filter_items_by_category(
-                                feed_items,
-                                category_filters,
-                            )
-                            if requested_limit is not None:
-                                feed_items = feed_items[:requested_limit]
-                        rss = build_rss(
-                            feed_items,
-                            title=_rss_title(category_filters),
-                            description=_rss_description(category_filters),
-                        )
+                    except ValueError as exc:
+                        self.send_error(400, str(exc))
+                        return
                     self._send_text(
                         rss,
                         content_type="application/rss+xml; charset=utf-8",
@@ -152,6 +138,53 @@ class EconomistRssServer:
         httpd.serve_forever()
 
 
+def _rss_response(
+    config: AppConfig,
+    query: str,
+    *,
+    path_category: str | None = None,
+    refresh_lock: Lock | None = None,
+) -> str:
+    requested_limit = _rss_item_limit(query, config.rss_item_limit)
+    catalog_search = _catalog_search_query(query)
+    category_filters = _category_filters(query)
+    if path_category:
+        category_filters = _unique_casefolded([path_category, *category_filters])
+
+    if not catalog_search.active:
+        if refresh_lock is None:
+            refresh_if_stale(config)
+        else:
+            with refresh_lock:
+                refresh_if_stale(config)
+
+    with ArticleStore(config.database_path) as store:
+        if catalog_search.active:
+            feed_items = store.search_items(
+                query=catalog_search.query,
+                start_date=catalog_search.start_date,
+                end_date=catalog_search.end_date,
+                categories=category_filters,
+                limit=requested_limit,
+            )
+        else:
+            item_limit = None if category_filters else requested_limit
+            feed_items = store.feed_items(
+                limit=item_limit,
+                published_after=cutoff_datetime(config.article_lookback_days),
+                current_issue_only=config.current_issue_filter_enabled,
+            )
+            if category_filters:
+                feed_items = _filter_items_by_category(feed_items, category_filters)
+                if requested_limit is not None:
+                    feed_items = feed_items[:requested_limit]
+        return build_rss(
+            feed_items,
+            title=_rss_title(category_filters, catalog_search),
+            description=_rss_description(category_filters, catalog_search),
+        )
+
+
 def _authorized(authorization_header: str, query: str, token_env_key: str) -> bool:
     expected = os.environ.get(token_env_key, "")
     if not expected:
@@ -185,20 +218,45 @@ def _category_filters(query: str) -> list[str]:
 def _rss_item_limit(query: str, default_limit: int | None) -> int | None:
     parsed = parse_qs(query)
     raw_values = [*parsed.get("limit", []), *parsed.get("count", [])]
+    effective_default = min(default_limit or MAX_RSS_ITEM_LIMIT, MAX_RSS_ITEM_LIMIT)
     if not raw_values:
-        return default_limit
+        return effective_default
     raw_value = raw_values[-1].strip()
     if not raw_value:
-        return default_limit
+        return effective_default
     try:
         requested_limit = int(raw_value)
     except ValueError as exc:
         raise ValueError("limit must be a positive integer") from exc
     if requested_limit < 1:
         raise ValueError("limit must be a positive integer")
-    if default_limit is not None:
-        return min(requested_limit, default_limit)
-    return requested_limit
+    return min(requested_limit, effective_default)
+
+
+def _catalog_search_query(query: str) -> CatalogSearchQuery:
+    parsed = parse_qs(query)
+    raw_query = parsed.get("q", [""])[-1].strip()
+    if len(raw_query) > 200:
+        raise ValueError("q must be 200 characters or fewer")
+    start_date = _date_parameter(parsed, "start_date")
+    end_date = _date_parameter(parsed, "end_date")
+    if start_date and end_date and start_date > end_date:
+        raise ValueError("start_date must be on or before end_date")
+    return CatalogSearchQuery(
+        query=raw_query,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+def _date_parameter(parsed: dict[str, list[str]], name: str) -> date | None:
+    raw_value = parsed.get(name, [""])[-1].strip()
+    if not raw_value:
+        return None
+    try:
+        return date.fromisoformat(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must use YYYY-MM-DD") from exc
 
 
 def _article_lookup_key(query: str) -> str | None:
@@ -251,14 +309,37 @@ def _unique_casefolded(values: list[str]) -> list[str]:
     return unique
 
 
-def _rss_title(category_filters: list[str]) -> str:
+def _rss_title(
+    category_filters: list[str],
+    catalog_search: CatalogSearchQuery | None = None,
+) -> str:
     base_title = "The Economist private article feed"
+    if catalog_search and catalog_search.active:
+        terms = catalog_search.query or "Back catalog"
+        return f"{base_title} - Search: {terms}"
     if not category_filters:
         return base_title
     return f"{base_title} - {', '.join(category_filters)}"
 
 
-def _rss_description(category_filters: list[str]) -> str:
+def _rss_description(
+    category_filters: list[str],
+    catalog_search: CatalogSearchQuery | None = None,
+) -> str:
+    if catalog_search and catalog_search.active:
+        filters = []
+        if catalog_search.query:
+            filters.append(f"keywords: {catalog_search.query}")
+        if catalog_search.start_date:
+            filters.append(f"from: {catalog_search.start_date.isoformat()}")
+        if catalog_search.end_date:
+            filters.append(f"through: {catalog_search.end_date.isoformat()}")
+        if category_filters:
+            filters.append(f"categories: {', '.join(category_filters)}")
+        return (
+            "Private RSS back-catalog search generated from the local article "
+            f"index ({'; '.join(filters)})."
+        )
     if not category_filters:
         return "Private RSS article index generated from authorized article fetches."
     return (
