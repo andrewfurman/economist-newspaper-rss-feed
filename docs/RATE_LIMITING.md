@@ -189,3 +189,10 @@ The service should treat these responses as stop signs, not article bodies:
 For failures, the article record is kept in SQLite with `content_status` and
 `error`, then retried later. The successful full-text cache is permanent unless
 you explicitly delete the database or force a retry.
+
+`POST /api/articles/fetch` only records a durable request for an already-known
+catalog URL. It never loads an Economist page in the API request. On each normal
+timer run, eligible requested articles are placed first in the existing
+sequential queue, but they do not increase `max_articles_per_refresh` or bypass
+failure backoff. This keeps API usage inside the same request ceiling and makes
+each attempted fetch visible in the existing structured `article_fetch` logs.

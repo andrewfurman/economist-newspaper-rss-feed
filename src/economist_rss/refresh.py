@@ -151,13 +151,31 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
                     stop_reason = world_result.stop_reason
                     store.set_state("last_refresh_stop_reason", world_result.stop_reason)
 
-    candidates = store.pending_articles(
-        limit=0 if stop_reason else max(0, fetch_budget - used_fetch_budget),
+    remaining_budget = 0 if stop_reason else max(0, fetch_budget - used_fetch_budget)
+    requested_candidates = store.requested_articles(
+        limit=remaining_budget,
+        retry_failed_after_seconds=config.retry_failed_after_seconds,
+        exclude_url_patterns=config.exclude_url_patterns,
+        force=force,
+    )
+    requested_urls = {
+        article.canonical_url for article in requested_candidates
+    }
+    normal_candidates = store.pending_articles(
+        limit=remaining_budget,
         retry_failed_after_seconds=config.retry_failed_after_seconds,
         exclude_url_patterns=config.exclude_url_patterns,
         published_after=published_after,
         force=force,
     )
+    candidates = [
+        *requested_candidates,
+        *(
+            article
+            for article in normal_candidates
+            if article.canonical_url not in requested_urls
+        ),
+    ][:remaining_budget]
 
     batch = fetch_article_batch(
         store,

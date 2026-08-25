@@ -34,8 +34,10 @@ cp sample.env /etc/economist-rss/real.env
 chmod 600 /etc/economist-rss/real.env
 ```
 
-Edit `/etc/economist-rss/real.env` with your subscriber credentials and a
-private refresh token.
+Edit `/etc/economist-rss/real.env` with your subscriber credentials, a private
+read-only feed token, and a separate private refresh token. The refresh token
+also authorizes `POST /api/articles/fetch`; send it only in an Authorization
+header, never in a URL.
 
 In `/etc/economist-rss/feeds.toml`, use persistent data paths:
 
@@ -100,7 +102,9 @@ The refresh timer runs every 5 minutes and the scheduled service uses
 to fetch up to five uncached articles, while failed or rate-limited articles
 remain subject to backoff. Normal RSS reads still use `refresh_interval_seconds`
 as a cache freshness guard. The World in Brief special fetch runs at most once
-per hour. Use manual forced refreshes only for deliberate one-off debugging. If
+per hour. Full-text requests queued through the JSON API are attempted first,
+but consume the same five-article budget and use the same delays. Use manual
+forced refreshes only for deliberate one-off debugging. If
 the logs show new HTTP `403`, HTTP `429`, or Cloudflare challenge responses,
 reduce `max_articles_per_refresh` to `4`, reduce it further to `3` or `2`, or
 restore a 10-minute timer.

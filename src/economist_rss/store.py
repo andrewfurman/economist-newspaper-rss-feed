@@ -37,6 +37,8 @@ class StoredArticle:
     fetched_at: str | None
     last_attempt_at: str | None
     attempt_count: int
+    fetch_requested_at: str | None
+    fetch_request_count: int
 
 
 @dataclass(frozen=True)
@@ -151,6 +153,55 @@ class ArticleStore:
         ).fetchone()
         return _row_to_article(row) if row else None
 
+    def request_article_fetch(self, url_or_key: str) -> StoredArticle | None:
+        article = self.get_article(url_or_key)
+        if article is None or _has_full_text(article):
+            return article
+        timestamp = now_iso()
+        self.conn.execute(
+            """
+            update articles
+            set fetch_requested_at = coalesce(fetch_requested_at, ?),
+                fetch_request_count = fetch_request_count + 1,
+                updated_at = ?
+            where canonical_url = ?
+            """,
+            (timestamp, timestamp, article.canonical_url),
+        )
+        self.conn.commit()
+        return self.get_article(article.canonical_url)
+
+    def requested_articles(
+        self,
+        *,
+        limit: int,
+        retry_failed_after_seconds: float,
+        exclude_url_patterns: Iterable[str],
+        force: bool = False,
+    ) -> list[StoredArticle]:
+        if limit <= 0:
+            return []
+        rows = self.conn.execute(
+            """
+            select * from articles
+            where fetch_requested_at is not null
+            order by fetch_requested_at asc, canonical_url asc
+            """
+        ).fetchall()
+        excluded = tuple(exclude_url_patterns)
+        pending: list[StoredArticle] = []
+        for row in rows:
+            article = _row_to_article(row)
+            if any(pattern and pattern in article.url for pattern in excluded):
+                continue
+            if _has_full_text(article):
+                continue
+            if force or _needs_fetch(article, retry_failed_after_seconds):
+                pending.append(article)
+            if len(pending) >= limit:
+                break
+        return pending
+
     def pending_articles(
         self,
         *,
@@ -215,6 +266,7 @@ class ArticleStore:
                 fetched_at = ?,
                 last_attempt_at = ?,
                 attempt_count = attempt_count + 1,
+                fetch_requested_at = null,
                 updated_at = ?
             where canonical_url = ?
             """,
@@ -473,14 +525,36 @@ class ArticleStore:
         categories: Iterable[str] = (),
         limit: int | None = 500,
     ) -> list[FeedItem]:
-        if limit is not None and limit <= 0:
+        articles = self.catalog_articles(
+            query=query,
+            start_date=start_date,
+            end_date=end_date,
+            categories=categories,
+            limit=limit,
+            search_content=True,
+        )
+        return [_article_to_feed_item(article) for article in articles]
+
+    def catalog_articles(
+        self,
+        *,
+        query: str = "",
+        start_date: date | None = None,
+        end_date: date | None = None,
+        categories: Iterable[str] = (),
+        limit: int | None = 500,
+        offset: int = 0,
+        search_content: bool = True,
+        full_text_only: bool = False,
+    ) -> list[StoredArticle]:
+        if offset < 0 or (limit is not None and limit <= 0):
             return []
 
         tokens = _search_tokens(query)
         params: list[object] = []
         where: list[str] = []
         join = ""
-        if tokens and self.search_index_enabled:
+        if tokens and search_content and self.search_index_enabled:
             join = (
                 " join article_search"
                 " on article_search.canonical_url = articles.canonical_url"
@@ -488,17 +562,25 @@ class ArticleStore:
             where.append("article_search match ?")
             params.append(" AND ".join(f'\"{token}\"' for token in tokens))
         elif tokens:
-            searchable_text = """
-                lower(
-                  coalesce(articles.title, '') || ' ' ||
-                  coalesce(articles.summary, '') || ' ' ||
-                  coalesce(articles.categories, '') || ' ' ||
-                  coalesce(articles.content_text, '')
-                )
-            """
+            fields = [
+                "coalesce(articles.title, '')",
+                "coalesce(articles.summary, '')",
+                "coalesce(articles.categories, '')",
+            ]
+            if search_content:
+                fields.append("coalesce(articles.content_text, '')")
+            searchable_text = "lower(" + " || ' ' || ".join(fields) + ")"
             for token in tokens:
                 where.append(f"{searchable_text} like ? escape '\\'")
                 params.append(f"%{_escape_like(token.casefold())}%")
+
+        if full_text_only:
+            where.extend(
+                [
+                    "articles.content_status = 'ok'",
+                    "trim(coalesce(articles.content_text, '')) != ''",
+                ]
+            )
 
         if start_date is not None:
             where.append("articles.published_at >= ?")
@@ -539,11 +621,16 @@ class ArticleStore:
         """
         if limit is not None:
             sql += " limit ?"
-            params.append(max(limit * 4, limit + 50))
+            requested_rows = offset + limit
+            params.append(max(requested_rows * 4, requested_rows + 50))
 
         rows = self.conn.execute(sql, params).fetchall()
-        items = _latest_brief_items_only(_rows_to_feed_items(rows))
-        return items[:limit] if limit is not None else items
+        articles = _latest_brief_articles_only(
+            [_row_to_article(row) for row in rows]
+        )
+        if limit is None:
+            return articles[offset:]
+        return articles[offset : offset + limit]
 
     def rebuild_search_index(self) -> int:
         if not self.search_index_enabled:
@@ -586,7 +673,9 @@ class ArticleStore:
               updated_at text not null,
               fetched_at text,
               last_attempt_at text,
-              attempt_count integer not null default 0
+              attempt_count integer not null default 0,
+              fetch_requested_at text,
+              fetch_request_count integer not null default 0
             )
             """
         )
@@ -613,6 +702,13 @@ class ArticleStore:
         _ensure_column(self.conn, "articles", "issue_id", "text")
         _ensure_column(self.conn, "articles", "issue_date", "text")
         _ensure_column(self.conn, "articles", "issue_source", "text")
+        _ensure_column(self.conn, "articles", "fetch_requested_at", "text")
+        _ensure_column(
+            self.conn,
+            "articles",
+            "fetch_request_count",
+            "integer not null default 0",
+        )
         _backfill_published_at(self.conn)
         _backfill_categories(self.conn)
         self.conn.execute(
@@ -628,6 +724,10 @@ class ArticleStore:
             "create index if not exists idx_articles_issue_id on articles(issue_id)"
         )
         self.conn.execute(
+            "create index if not exists idx_articles_fetch_requested "
+            "on articles(fetch_requested_at)"
+        )
+        self.conn.execute(
             "create index if not exists idx_catalog_issues_status "
             "on catalog_issues(discovery_status, issue_date)"
         )
@@ -636,7 +736,7 @@ class ArticleStore:
 
 
 def _needs_fetch(article: StoredArticle, retry_failed_after_seconds: float) -> bool:
-    if article.content_status == "ok" and article.content_html:
+    if _has_full_text(article):
         return False
     if not article.last_attempt_at:
         return True
@@ -648,6 +748,12 @@ def _needs_fetch(article: StoredArticle, retry_failed_after_seconds: float) -> b
     elapsed = (datetime.now(timezone.utc) - attempted_at).total_seconds()
     backoff = retry_failed_after_seconds * max(1, min(article.attempt_count, 8))
     return elapsed >= backoff
+
+
+def _has_full_text(article: StoredArticle) -> bool:
+    return article.content_status == "ok" and bool(
+        (article.content_text or "").strip()
+    )
 
 
 def _encode_categories(categories: Iterable[str]) -> str:
@@ -679,20 +785,21 @@ def _decode_categories(raw: str | None) -> list[str]:
 
 
 def _rows_to_feed_items(rows: Iterable[sqlite3.Row]) -> list[FeedItem]:
-    return [
-        FeedItem(
-            title=row["title"] or "Untitled",
-            link=row["url"] or row["canonical_url"],
-            guid=row["guid"] or row["canonical_url"],
-            published=row["published"],
-            summary=row["summary"],
-            content_html=row["content_html"],
-            content_text=row["content_text"],
-            source=row["source"],
-            categories=_decode_categories(row["categories"]),
-        )
-        for row in rows
-    ]
+    return [_article_to_feed_item(_row_to_article(row)) for row in rows]
+
+
+def _article_to_feed_item(article: StoredArticle) -> FeedItem:
+    return FeedItem(
+        title=article.title,
+        link=article.url or article.canonical_url,
+        guid=article.guid or article.canonical_url,
+        published=article.published,
+        summary=article.summary,
+        content_html=article.content_html,
+        content_text=article.content_text,
+        source=article.source,
+        categories=article.categories,
+    )
 
 
 def _search_tokens(query: str) -> list[str]:
@@ -891,6 +998,21 @@ def _latest_brief_items_only(items: list[FeedItem]) -> list[FeedItem]:
     return filtered
 
 
+def _latest_brief_articles_only(
+    articles: list[StoredArticle],
+) -> list[StoredArticle]:
+    seen_brief_groups: set[str] = set()
+    filtered: list[StoredArticle] = []
+    for article in articles:
+        brief_group = _brief_item_group(_article_to_feed_item(article))
+        if brief_group is not None:
+            if brief_group in seen_brief_groups:
+                continue
+            seen_brief_groups.add(brief_group)
+        filtered.append(article)
+    return filtered
+
+
 def _brief_item_group(item: FeedItem) -> str | None:
     categories = set(categories_for_item(item))
     if "The World in Brief" in categories:
@@ -922,6 +1044,8 @@ def _row_to_article(row: sqlite3.Row) -> StoredArticle:
         fetched_at=row["fetched_at"],
         last_attempt_at=row["last_attempt_at"],
         attempt_count=int(row["attempt_count"] or 0),
+        fetch_requested_at=row["fetch_requested_at"],
+        fetch_request_count=int(row["fetch_request_count"] or 0),
     )
 
 

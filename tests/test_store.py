@@ -122,6 +122,60 @@ class ArticleStoreTests(unittest.TestCase):
                 self.assertEqual([item.guid for item in indexed], ["sanctions"])
                 self.assertEqual([item.guid for item in fallback], ["sanctions"])
 
+    def test_catalog_articles_can_search_metadata_without_matching_body_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                body_match = store.upsert_feed_item(
+                    FeedItem(
+                        title="A diplomatic bargain",
+                        link="https://www.economist.com/asia/1998/01/02/bargain",
+                        guid="body-match",
+                        summary="Negotiators return to the table",
+                    )
+                )
+                metadata_match = store.upsert_feed_item(
+                    FeedItem(
+                        title="Iran changes course",
+                        link="https://www.economist.com/asia/1999/01/02/iran",
+                        guid="metadata-match",
+                        summary="A policy shift",
+                    )
+                )
+                store.save_article_content(
+                    body_match,
+                    content_html="<p>Iran diplomacy</p>",
+                    content_text="Iran diplomacy",
+                    content_source="test",
+                )
+                store.save_article_content(
+                    metadata_match,
+                    content_html="<p>Full text</p>",
+                    content_text="Full text",
+                    content_source="test",
+                )
+
+                metadata_results = store.catalog_articles(
+                    query="Iran",
+                    search_content=False,
+                    limit=10,
+                )
+                local_results = store.catalog_articles(
+                    query="Iran",
+                    search_content=True,
+                    full_text_only=True,
+                    limit=10,
+                )
+
+            self.assertEqual(
+                [article.guid for article in metadata_results],
+                ["metadata-match"],
+            )
+            self.assertEqual(
+                {article.guid for article in local_results},
+                {"body-match", "metadata-match"},
+            )
+
     def test_catalog_search_ignores_possessive_punctuation_fragment(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "articles.sqlite3"
@@ -244,6 +298,90 @@ class ArticleStoreTests(unittest.TestCase):
                 self.assertIsNotNone(found)
                 assert found is not None
                 self.assertEqual(found.canonical_url, article.canonical_url)
+
+    def test_fetch_request_is_durable_deduplicated_and_cleared_on_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                article = store.upsert_feed_item(
+                    FeedItem(
+                        title="Historical story",
+                        link="https://www.economist.com/leaders/1997/01/04/story",
+                        guid="historical",
+                    )
+                )
+
+                first_request = store.request_article_fetch(article.url)
+                second_request = store.request_article_fetch(article.guid)
+                requested = store.requested_articles(
+                    limit=10,
+                    retry_failed_after_seconds=3600,
+                    exclude_url_patterns=[],
+                )
+
+                assert first_request is not None
+                assert second_request is not None
+                self.assertEqual(
+                    first_request.fetch_requested_at,
+                    second_request.fetch_requested_at,
+                )
+                self.assertEqual(second_request.fetch_request_count, 2)
+                self.assertEqual([item.guid for item in requested], ["historical"])
+
+                store.save_article_content(
+                    second_request,
+                    content_html="<p>Full historical text</p>",
+                    content_text="Full historical text",
+                    content_source="test",
+                )
+                completed = store.get_article(article.url)
+
+                assert completed is not None
+                self.assertIsNone(completed.fetch_requested_at)
+                self.assertEqual(
+                    store.requested_articles(
+                        limit=10,
+                        retry_failed_after_seconds=3600,
+                        exclude_url_patterns=[],
+                    ),
+                    [],
+                )
+
+    def test_requested_articles_honor_backoff_and_exclusions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                article = store.upsert_feed_item(
+                    FeedItem(
+                        title="Historical story",
+                        link="https://www.economist.com/podcasts/1997/01/04/story",
+                        guid="historical",
+                    )
+                )
+                store.request_article_fetch(article.url)
+                store.mark_fetch_error(article, status="rate_limited", error="HTTP 429")
+
+                backed_off = store.requested_articles(
+                    limit=10,
+                    retry_failed_after_seconds=3600,
+                    exclude_url_patterns=[],
+                )
+                forced = store.requested_articles(
+                    limit=10,
+                    retry_failed_after_seconds=3600,
+                    exclude_url_patterns=[],
+                    force=True,
+                )
+                excluded = store.requested_articles(
+                    limit=10,
+                    retry_failed_after_seconds=0,
+                    exclude_url_patterns=["/podcasts/"],
+                    force=True,
+                )
+
+            self.assertEqual(backed_off, [])
+            self.assertEqual([item.guid for item in forced], ["historical"])
+            self.assertEqual(excluded, [])
 
     def test_feed_items_can_be_limited_to_recent_published_articles(self):
         with tempfile.TemporaryDirectory() as directory:

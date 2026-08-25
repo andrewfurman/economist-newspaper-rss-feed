@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
 from threading import Lock
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from .config import AppConfig
 from .feed import FeedItem, build_rss, categories_for_item, category_for_slug
@@ -16,6 +18,10 @@ from .util import cutoff_datetime
 CATEGORY_FEED_PREFIX = "/rss/category/"
 CATEGORY_FEED_SUFFIX = ".xml"
 MAX_RSS_ITEM_LIMIT = 500
+DEFAULT_API_ITEM_LIMIT = 50
+MAX_API_ITEM_LIMIT = 500
+MAX_API_OFFSET = 100_000
+MAX_JSON_BODY_BYTES = 16_384
 
 
 @dataclass(frozen=True)
@@ -44,6 +50,35 @@ class EconomistRssServer:
                 parsed = urlparse(self.path)
                 if parsed.path == "/healthz":
                     self._send_text("ok\n", content_type="text/plain")
+                    return
+                if parsed.path in {
+                    "/api/search",
+                    "/api/articles",
+                    "/api/articles/status",
+                }:
+                    if not _authorized(
+                        self.headers.get("Authorization", ""),
+                        parsed.query,
+                        "ECONOMIST_FEED_TOKEN",
+                    ):
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
+                    try:
+                        if parsed.path == "/api/search":
+                            payload = _api_search_response(owner.config, parsed.query)
+                            status = 200
+                        elif parsed.path == "/api/articles":
+                            payload = _api_articles_response(owner.config, parsed.query)
+                            status = 200
+                        else:
+                            payload, status = _api_article_status_response(
+                                owner.config,
+                                parsed.query,
+                            )
+                    except ValueError as exc:
+                        self._send_json({"error": str(exc)}, status=400)
+                        return
+                    self._send_json(payload, status=status)
                     return
                 if parsed.path == "/article.txt":
                     if not _authorized(
@@ -99,6 +134,35 @@ class EconomistRssServer:
 
             def do_POST(self) -> None:  # noqa: N802
                 parsed = urlparse(self.path)
+                if parsed.path == "/api/articles/fetch":
+                    if not os.environ.get("ECONOMIST_REFRESH_TOKEN", ""):
+                        self._send_json(
+                            {
+                                "error": (
+                                    "full-text fetch requests are disabled because "
+                                    "ECONOMIST_REFRESH_TOKEN is not configured"
+                                )
+                            },
+                            status=503,
+                        )
+                        return
+                    if not _required_bearer_authorized(
+                        self.headers.get("Authorization", ""),
+                        "ECONOMIST_REFRESH_TOKEN",
+                    ):
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
+                    try:
+                        request_body = self._read_json_body()
+                        payload, status = _api_article_fetch_response(
+                            owner.config,
+                            request_body,
+                        )
+                    except ValueError as exc:
+                        self._send_json({"error": str(exc)}, status=400)
+                        return
+                    self._send_json(payload, status=status)
+                    return
                 if parsed.path != "/refresh":
                     self.send_error(404)
                     return
@@ -133,6 +197,42 @@ class EconomistRssServer:
                 self.send_header("Content-Length", str(len(encoded)))
                 self.end_headers()
                 self.wfile.write(encoded)
+
+            def _send_json(self, payload: object, *, status: int) -> None:
+                body = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ) + "\n"
+                encoded = body.encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def _read_json_body(self) -> dict[str, object]:
+                content_type = self.headers.get("Content-Type", "")
+                if content_type.split(";", 1)[0].strip() != "application/json":
+                    raise ValueError("Content-Type must be application/json")
+                raw_length = self.headers.get("Content-Length", "")
+                try:
+                    content_length = int(raw_length)
+                except ValueError as exc:
+                    raise ValueError("Content-Length must be an integer") from exc
+                if content_length < 1:
+                    raise ValueError("request body must be a JSON object")
+                if content_length > MAX_JSON_BODY_BYTES:
+                    raise ValueError("request body is too large")
+                try:
+                    payload = json.loads(
+                        self.rfile.read(content_length).decode("utf-8")
+                    )
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise ValueError("request body must be valid JSON") from exc
+                if not isinstance(payload, dict):
+                    raise ValueError("request body must be a JSON object")
+                return payload
 
         httpd = ThreadingHTTPServer((self.host, self.port), Handler)
         httpd.serve_forever()
@@ -185,6 +285,325 @@ def _rss_response(
         )
 
 
+def _api_search_response(config: AppConfig, query: str) -> dict[str, object]:
+    catalog_search = _catalog_search_query(query)
+    categories = _category_filters(query)
+    limit = _api_integer_parameter(
+        query,
+        "limit",
+        default=DEFAULT_API_ITEM_LIMIT,
+        minimum=1,
+        maximum=MAX_API_ITEM_LIMIT,
+    )
+    scope = _api_search_scope(query)
+
+    with ArticleStore(config.database_path) as store:
+        local_results: list[StoredArticle] = []
+        feed_results: list[StoredArticle] = []
+        if scope in {"all", "local"}:
+            local_results = store.catalog_articles(
+                query=catalog_search.query,
+                start_date=catalog_search.start_date,
+                end_date=catalog_search.end_date,
+                categories=categories,
+                limit=limit,
+                search_content=True,
+                full_text_only=True,
+            )
+        if scope == "feed":
+            feed_results = store.catalog_articles(
+                query=catalog_search.query,
+                start_date=catalog_search.start_date,
+                end_date=catalog_search.end_date,
+                categories=categories,
+                limit=limit,
+                search_content=False,
+            )
+        elif scope == "all" and len(local_results) < limit:
+            local_urls = {article.canonical_url for article in local_results}
+            feed_candidates = store.catalog_articles(
+                query=catalog_search.query,
+                start_date=catalog_search.start_date,
+                end_date=catalog_search.end_date,
+                categories=categories,
+                limit=limit + len(local_results) + 50,
+                search_content=False,
+            )
+            feed_results = [
+                article
+                for article in feed_candidates
+                if article.canonical_url not in local_urls
+            ][: max(0, limit - len(local_results))]
+
+        results = [
+            *(
+                _article_api_item(article, match_source="local_full_text")
+                for article in local_results
+            ),
+            *(
+                _article_api_item(article, match_source="economist_feed_metadata")
+                for article in feed_results
+            ),
+        ][:limit]
+        last_refresh_at = store.get_state("last_refresh_at")
+
+    return {
+        "query": _api_query_payload(
+            catalog_search,
+            categories=categories,
+            limit=limit,
+            scope=scope,
+        ),
+        "ordering": (
+            "local full-text matches first, then feed metadata matches; "
+            "newest first within each group"
+        ),
+        "count": len(results),
+        "local_count": min(len(local_results), len(results)),
+        "feed_count": len(results) - min(len(local_results), len(results)),
+        "results": results,
+        "cache_last_refreshed_at": last_refresh_at,
+    }
+
+
+def _api_articles_response(config: AppConfig, query: str) -> dict[str, object]:
+    catalog_search = _catalog_search_query(query)
+    categories = _category_filters(query)
+    limit = _api_integer_parameter(
+        query,
+        "limit",
+        default=DEFAULT_API_ITEM_LIMIT,
+        minimum=1,
+        maximum=MAX_API_ITEM_LIMIT,
+    )
+    offset = _api_integer_parameter(
+        query,
+        "offset",
+        default=0,
+        minimum=0,
+        maximum=MAX_API_OFFSET,
+    )
+    with ArticleStore(config.database_path) as store:
+        articles = store.catalog_articles(
+            query=catalog_search.query,
+            start_date=catalog_search.start_date,
+            end_date=catalog_search.end_date,
+            categories=categories,
+            limit=limit + 1,
+            offset=offset,
+            search_content=False,
+        )
+        last_refresh_at = store.get_state("last_refresh_at")
+
+    has_more = len(articles) > limit
+    page = articles[:limit]
+    return {
+        "query": _api_query_payload(
+            catalog_search,
+            categories=categories,
+            limit=limit,
+            offset=offset,
+        ),
+        "ordering": "published_at descending",
+        "count": len(page),
+        "has_more": has_more,
+        "next_offset": offset + limit if has_more else None,
+        "results": [
+            _article_api_item(article, match_source="economist_feed_metadata")
+            for article in page
+        ],
+        "cache_last_refreshed_at": last_refresh_at,
+    }
+
+
+def _api_article_status_response(
+    config: AppConfig,
+    query: str,
+) -> tuple[dict[str, object], int]:
+    lookup_key = _article_lookup_key(query)
+    if lookup_key is None:
+        raise ValueError("Missing url, link, or guid parameter")
+    with ArticleStore(config.database_path) as store:
+        article = store.get_article(lookup_key)
+    if article is None:
+        return {"error": "article not found"}, 404
+    return {"article": _article_status_api_item(article)}, 200
+
+
+def _api_article_fetch_response(
+    config: AppConfig,
+    request_body: dict[str, object],
+) -> tuple[dict[str, object], int]:
+    lookup_key = _article_lookup_from_json(request_body)
+    with ArticleStore(config.database_path) as store:
+        article = store.get_article(lookup_key)
+        if article is None:
+            return {"error": "article not found in the local catalog"}, 404
+        if not _is_allowed_economist_article(article):
+            return {"error": "article URL is not an allowed Economist URL"}, 400
+        if any(
+            pattern and pattern in article.url
+            for pattern in config.exclude_url_patterns
+        ):
+            return {"error": "article URL is excluded from fetching"}, 409
+        if _article_has_full_text(article):
+            return {
+                "status": "ready",
+                "article": _article_status_api_item(article),
+            }, 200
+        queued = store.request_article_fetch(article.canonical_url)
+
+    assert queued is not None
+    return {
+        "status": "queued",
+        "message": (
+            "The article will be attempted by the next sequential refresh run "
+            "when retry backoff permits."
+        ),
+        "refresh_interval_seconds": config.refresh_interval_seconds,
+        "article": _article_status_api_item(queued),
+    }, 202
+
+
+def _api_query_payload(
+    catalog_search: CatalogSearchQuery,
+    *,
+    categories: list[str],
+    limit: int,
+    scope: str | None = None,
+    offset: int | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "q": catalog_search.query,
+        "start_date": (
+            catalog_search.start_date.isoformat()
+            if catalog_search.start_date
+            else None
+        ),
+        "end_date": (
+            catalog_search.end_date.isoformat() if catalog_search.end_date else None
+        ),
+        "categories": categories,
+        "limit": limit,
+    }
+    if scope is not None:
+        payload["scope"] = scope
+    if offset is not None:
+        payload["offset"] = offset
+    return payload
+
+
+def _article_api_item(
+    article: StoredArticle,
+    *,
+    match_source: str,
+) -> dict[str, object]:
+    full_text_available = _article_has_full_text(article)
+    item: dict[str, object] = {
+        "title": article.title,
+        "url": article.url,
+        "guid": article.guid,
+        "published": article.published,
+        "published_at": article.published_at,
+        "categories": article.categories,
+        "snippet": _article_snippet(article),
+        "source": article.source,
+        "match_source": match_source,
+        "full_text_available": full_text_available,
+        "content_status": article.content_status or "not_fetched",
+        "fetch_requested": bool(article.fetch_requested_at),
+        "status_url": _relative_article_url("/api/articles/status", article),
+        "full_text_url": (
+            _relative_article_url("/article.txt", article)
+            if full_text_available
+            else None
+        ),
+    }
+    return item
+
+
+def _article_status_api_item(article: StoredArticle) -> dict[str, object]:
+    item = _article_api_item(article, match_source="local_catalog")
+    item.update(
+        {
+            "fetch_requested_at": article.fetch_requested_at,
+            "fetch_request_count": article.fetch_request_count,
+            "fetched_at": article.fetched_at,
+            "last_attempt_at": article.last_attempt_at,
+            "attempt_count": article.attempt_count,
+            "error": article.error or None,
+        }
+    )
+    return item
+
+
+def _article_snippet(article: StoredArticle) -> str:
+    raw = (article.summary or "").strip()
+    if not raw and article.content_text:
+        raw = article.content_text.strip()
+    normalized = " ".join(raw.split())
+    if len(normalized) <= 320:
+        return normalized
+    return normalized[:317].rstrip() + "..."
+
+
+def _relative_article_url(path: str, article: StoredArticle) -> str:
+    return f"{path}?{urlencode({'url': article.canonical_url})}"
+
+
+def _article_lookup_from_json(payload: dict[str, object]) -> str:
+    for key in ("url", "link", "guid"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raise ValueError("request body needs a non-empty url, link, or guid")
+
+
+def _article_has_full_text(article: StoredArticle) -> bool:
+    return article.content_status == "ok" and bool(
+        (article.content_text or "").strip()
+    )
+
+
+def _is_allowed_economist_article(article: StoredArticle) -> bool:
+    parsed = urlparse(article.url)
+    hostname = (parsed.hostname or "").casefold()
+    return parsed.scheme == "https" and (
+        hostname == "economist.com" or hostname.endswith(".economist.com")
+    )
+
+
+def _api_search_scope(query: str) -> str:
+    parsed = parse_qs(query)
+    scope = parsed.get("scope", ["all"])[-1].strip().casefold() or "all"
+    if scope == "rss":
+        scope = "feed"
+    if scope not in {"all", "local", "feed"}:
+        raise ValueError("scope must be all, local, feed, or rss")
+    return scope
+
+
+def _api_integer_parameter(
+    query: str,
+    name: str,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    parsed = parse_qs(query)
+    raw_value = parsed.get(name, [""])[-1].strip()
+    if not raw_value:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
 def _authorized(authorization_header: str, query: str, token_env_key: str) -> bool:
     expected = os.environ.get(token_env_key, "")
     if not expected:
@@ -193,6 +612,19 @@ def _authorized(authorization_header: str, query: str, token_env_key: str) -> bo
         return True
     tokens = parse_qs(query).get("token", [])
     return any(token == expected for token in tokens)
+
+
+def _required_bearer_authorized(
+    authorization_header: str,
+    token_env_key: str,
+) -> bool:
+    expected = os.environ.get(token_env_key, "")
+    if not expected:
+        return False
+    supplied = authorization_header.removeprefix("Bearer ")
+    if supplied == authorization_header:
+        return False
+    return hmac.compare_digest(supplied, expected)
 
 
 def _category_from_feed_path(path: str) -> str | None:
