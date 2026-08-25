@@ -6,6 +6,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from economist_rss.feed import FeedItem, build_rss
+from economist_rss.server import _filter_items_by_category
 from economist_rss.store import ArticleStore
 
 
@@ -340,6 +341,254 @@ class ArticleStoreTests(unittest.TestCase):
                 root = ET.fromstring(output)
                 categories = [category.text for category in root.findall(".//category")]
                 self.assertEqual(categories, ["Essay", "Special coverage"])
+
+    def test_current_issue_filter_includes_issue_articles_before_issue_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            issue_date = datetime(2026, 6, 27, tzinfo=timezone.utc)
+            with ArticleStore(path) as store:
+                store.set_state("current_issue_id", "2026-06-27")
+                store.set_state("current_issue_date", "2026-06-27")
+                store.set_state("current_issue_article_count", "1")
+                article = store.upsert_current_issue_article(
+                    FeedItem(
+                        title="Issue story published early",
+                        link="https://www.economist.com/leaders/2026/06/24/story",
+                        guid="issue-story",
+                        published=format_datetime(issue_date - timedelta(days=3)),
+                    ),
+                    issue_id="2026-06-27",
+                    issue_date="2026-06-27",
+                    issue_source="weeklyedition_page",
+                )
+                older = store.upsert_feed_item(
+                    FeedItem(
+                        title="Older story",
+                        link="https://www.economist.com/leaders/2026/06/19/old",
+                        guid="old-story",
+                        published=format_datetime(issue_date - timedelta(days=8)),
+                    )
+                )
+                for stored in (article, older):
+                    store.save_article_content(
+                        stored,
+                        content_html="<p>Full text</p>",
+                        content_text="Full text",
+                        content_source="test",
+                    )
+
+                items = store.feed_items(limit=None, current_issue_only=True)
+
+                self.assertEqual(
+                    [item.title for item in items],
+                    ["Issue story published early"],
+                )
+
+    def test_current_issue_filter_includes_online_exclusives_after_issue_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.set_state("current_issue_id", "2026-06-27")
+                store.set_state("current_issue_date", "2026-06-27")
+                store.set_state("current_issue_article_count", "10")
+                article = store.upsert_feed_item(
+                    FeedItem(
+                        title="Online exclusive",
+                        link="https://www.economist.com/business/2026/06/28/online",
+                        guid="online",
+                        published="Sun, 28 Jun 2026 10:00:00 +0000",
+                    )
+                )
+                store.save_article_content(
+                    article,
+                    content_html="<p>Full text</p>",
+                    content_text="Full text",
+                    content_source="test",
+                )
+
+                items = store.feed_items(limit=None, current_issue_only=True)
+
+                self.assertEqual([item.title for item in items], ["Online exclusive"])
+
+    def test_current_issue_filter_excludes_prior_issue_articles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.set_state("current_issue_id", "2026-06-27")
+                store.set_state("current_issue_date", "2026-06-27")
+                store.set_state("current_issue_article_count", "10")
+                prior = store.upsert_current_issue_article(
+                    FeedItem(
+                        title="Prior issue story",
+                        link="https://www.economist.com/leaders/2026/06/19/prior",
+                        guid="prior",
+                        published="Fri, 19 Jun 2026 10:00:00 +0000",
+                    ),
+                    issue_id="2026-06-20",
+                    issue_date="2026-06-20",
+                    issue_source="weeklyedition_page",
+                )
+                latest = store.upsert_current_issue_article(
+                    FeedItem(
+                        title="Latest issue story",
+                        link="https://www.economist.com/leaders/2026/06/26/latest",
+                        guid="latest",
+                        published="Fri, 26 Jun 2026 10:00:00 +0000",
+                    ),
+                    issue_id="2026-06-27",
+                    issue_date="2026-06-27",
+                    issue_source="weeklyedition_page",
+                )
+                for stored in (prior, latest):
+                    store.save_article_content(
+                        stored,
+                        content_html="<p>Full text</p>",
+                        content_text="Full text",
+                        content_source="test",
+                    )
+
+                items = store.feed_items(limit=None, current_issue_only=True)
+
+                self.assertEqual([item.title for item in items], ["Latest issue story"])
+
+    def test_current_issue_filter_limit_applies_after_filtering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.set_state("current_issue_id", "2026-06-27")
+                store.set_state("current_issue_date", "2026-06-27")
+                store.set_state("current_issue_article_count", "1")
+                old = store.upsert_feed_item(
+                    FeedItem(
+                        title="Old story",
+                        link="https://www.economist.com/business/2026/06/18/old",
+                        guid="old",
+                        published="Thu, 18 Jun 2026 10:00:00 +0000",
+                    )
+                )
+                latest_one = store.upsert_current_issue_article(
+                    FeedItem(
+                        title="Latest one",
+                        link="https://www.economist.com/business/2026/06/26/one",
+                        guid="one",
+                        published="Fri, 26 Jun 2026 11:00:00 +0000",
+                    ),
+                    issue_id="2026-06-27",
+                    issue_date="2026-06-27",
+                    issue_source="weeklyedition_page",
+                )
+                latest_two = store.upsert_feed_item(
+                    FeedItem(
+                        title="Latest two",
+                        link="https://www.economist.com/business/2026/06/28/two",
+                        guid="two",
+                        published="Sun, 28 Jun 2026 11:00:00 +0000",
+                    )
+                )
+                for stored in (old, latest_one, latest_two):
+                    store.save_article_content(
+                        stored,
+                        content_html="<p>Full text</p>",
+                        content_text="Full text",
+                        content_source="test",
+                    )
+
+                items = store.feed_items(limit=2, current_issue_only=True)
+
+                self.assertEqual(
+                    [item.title for item in items],
+                    ["Latest two", "Latest one"],
+                )
+
+    def test_current_issue_filter_works_with_category_and_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.set_state("current_issue_id", "2026-06-27")
+                store.set_state("current_issue_date", "2026-06-27")
+                store.set_state("current_issue_article_count", "2")
+                items_to_store = [
+                    FeedItem(
+                        title="United States story one",
+                        link="https://www.economist.com/united-states/2026/06/26/one",
+                        guid="us-one",
+                        published="Fri, 26 Jun 2026 11:00:00 +0000",
+                    ),
+                    FeedItem(
+                        title="United States story two",
+                        link="https://www.economist.com/united-states/2026/06/25/two",
+                        guid="us-two",
+                        published="Thu, 25 Jun 2026 11:00:00 +0000",
+                    ),
+                    FeedItem(
+                        title="Business story",
+                        link="https://www.economist.com/business/2026/06/26/business",
+                        guid="business",
+                        published="Fri, 26 Jun 2026 09:00:00 +0000",
+                    ),
+                    FeedItem(
+                        title="Old United States story",
+                        link="https://www.economist.com/united-states/2026/06/18/old",
+                        guid="old-us",
+                        published="Thu, 18 Jun 2026 09:00:00 +0000",
+                    ),
+                ]
+                stored_articles = [
+                    store.upsert_current_issue_article(
+                        item,
+                        issue_id="2026-06-27" if item.guid != "old-us" else "2026-06-20",
+                        issue_date="2026-06-27" if item.guid != "old-us" else "2026-06-20",
+                        issue_source="weeklyedition_page",
+                    )
+                    for item in items_to_store
+                ]
+                for stored in stored_articles:
+                    store.save_article_content(
+                        stored,
+                        content_html="<p>Full text</p>",
+                        content_text="Full text",
+                        content_source="test",
+                    )
+
+                current_items = store.feed_items(limit=None, current_issue_only=True)
+                filtered = _filter_items_by_category(current_items, ["United States"])[:1]
+
+                self.assertEqual([item.title for item in filtered], ["United States story one"])
+
+    def test_current_issue_filter_has_calendar_fallback_without_issue_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(path) as store:
+                store.set_state("current_issue_id", "2026-06-27")
+                store.set_state("current_issue_date", "2026-06-27")
+                store.set_state("current_issue_article_count", "0")
+                current_week = store.upsert_feed_item(
+                    FeedItem(
+                        title="Current week story",
+                        link="https://www.economist.com/business/2026/06/24/current",
+                        guid="current",
+                        published="Wed, 24 Jun 2026 10:00:00 +0000",
+                    )
+                )
+                prior_week = store.upsert_feed_item(
+                    FeedItem(
+                        title="Prior week story",
+                        link="https://www.economist.com/business/2026/06/20/prior",
+                        guid="prior",
+                        published="Sat, 20 Jun 2026 10:00:00 +0000",
+                    )
+                )
+                for stored in (current_week, prior_week):
+                    store.save_article_content(
+                        stored,
+                        content_html="<p>Full text</p>",
+                        content_text="Full text",
+                        content_source="test",
+                    )
+
+                items = store.feed_items(limit=None, current_issue_only=True)
+
+                self.assertEqual([item.title for item in items], ["Current week story"])
 
     def test_empty_category_update_does_not_erase_sourced_categories(self):
         with tempfile.TemporaryDirectory() as directory:

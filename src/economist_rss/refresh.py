@@ -23,6 +23,7 @@ from .config import AppConfig
 from .extract import ArticleContent, extract_article, is_cloudflare_challenge
 from .feed import FeedItem, parse_feed
 from .fetch import FetchError, Fetcher
+from .issue import CurrentIssue, resolve_current_issue
 from .store import ArticleStore, StoredArticle
 from .util import canonical_url, cutoff_datetime, now_iso, parse_datetime
 
@@ -98,6 +99,9 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
     published_after = cutoff_datetime(config.article_lookback_days)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     store.set_state("last_refresh_stop_reason", "")
+
+    if config.current_issue_filter_enabled:
+        _refresh_current_issue_if_stale(store, fetcher, config, force=force)
 
     for feed_config in config.feeds:
         feeds_checked += 1
@@ -296,6 +300,85 @@ def _fetch_article(
         http_status=response.status,
         final_url=response.url,
     )
+
+
+def _refresh_current_issue_if_stale(
+    store: ArticleStore,
+    fetcher: Fetcher,
+    config: AppConfig,
+    *,
+    force: bool,
+) -> None:
+    if (
+        not force
+        and not _state_is_stale(
+            store,
+            "current_issue_last_refresh_at",
+            config.current_issue_refresh_interval_seconds,
+        )
+    ):
+        return
+
+    current_issue = resolve_current_issue(
+        fetcher,
+        base_url=config.weekly_edition_base_url,
+        lookahead_days=config.current_issue_lookahead_days,
+    )
+    article_count = _save_current_issue(store, current_issue)
+    store.set_state("current_issue_id", current_issue.issue_id)
+    store.set_state("current_issue_date", current_issue.issue_date)
+    store.set_state("current_issue_url", current_issue.issue_url)
+    store.set_state("current_issue_source", current_issue.source)
+    store.set_state("current_issue_article_count", str(article_count))
+    store.set_state("current_issue_error", current_issue.error)
+    store.set_state("current_issue_last_refresh_at", now_iso())
+    LOGGER.info(
+        "current_issue %s",
+        json.dumps(
+            {
+                "issue_id": current_issue.issue_id,
+                "issue_url": current_issue.issue_url,
+                "source": current_issue.source,
+                "articles_seen": len(current_issue.articles),
+                "articles_saved": article_count,
+                "error": current_issue.error,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    )
+
+
+def _save_current_issue(store: ArticleStore, current_issue: CurrentIssue) -> int:
+    previous_issue_id = store.get_state("current_issue_id")
+    previous_count = _int_state(store.get_state("current_issue_article_count"))
+    if not current_issue.articles:
+        if previous_issue_id == current_issue.issue_id and previous_count > 0:
+            return previous_count
+        return 0
+
+    saved = 0
+    for article in current_issue.articles:
+        store.upsert_current_issue_article(
+            FeedItem(
+                title=article.title,
+                link=article.url,
+                guid=article.url,
+                source="Weekly edition",
+            ),
+            issue_id=current_issue.issue_id,
+            issue_date=current_issue.issue_date,
+            issue_source=current_issue.source,
+        )
+        saved += 1
+    return saved
+
+
+def _int_state(raw: str | None) -> int:
+    try:
+        return int(raw or "0")
+    except ValueError:
+        return 0
 
 
 def _refresh_world_in_brief_if_stale(

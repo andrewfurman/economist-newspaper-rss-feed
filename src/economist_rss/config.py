@@ -49,6 +49,10 @@ class AppConfig:
         "plot-twist-newsletter-the-art-of-adolescence"
     )
     exclude_url_patterns: list[str] = field(default_factory=list)
+    current_issue_filter_enabled: bool = True
+    weekly_edition_base_url: str = "https://www.economist.com/weeklyedition"
+    current_issue_refresh_interval_seconds: float = 21600.0
+    current_issue_lookahead_days: int = 2
     world_in_brief_enabled: bool = True
     world_in_brief_url: str = "https://www.economist.com/the-world-in-brief"
     world_in_brief_refresh_interval_seconds: float = 3600.0
@@ -115,6 +119,20 @@ def load_config(path: str | Path) -> AppConfig:
             "plot-twist-newsletter-the-art-of-adolescence",
         ),
         exclude_url_patterns=_string_list_value(raw, "exclude_url_patterns", []),
+        current_issue_filter_enabled=_bool_value(
+            raw, "current_issue_filter_enabled", True
+        ),
+        weekly_edition_base_url=_string_value(
+            raw,
+            "weekly_edition_base_url",
+            "https://www.economist.com/weeklyedition",
+        ),
+        current_issue_refresh_interval_seconds=_float_value(
+            raw, "current_issue_refresh_interval_seconds", 21600.0
+        ),
+        current_issue_lookahead_days=_int_value(
+            raw, "current_issue_lookahead_days", 2
+        ),
         world_in_brief_enabled=_bool_value(raw, "world_in_brief_enabled", True),
         world_in_brief_url=_string_value(
             raw,
