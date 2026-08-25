@@ -16,6 +16,7 @@ from economist_rss.server import (
     _api_articles_response,
     _api_search_response,
     _api_search_scope,
+    _api_stats_response,
     _article_lookup_key,
     _article_text_body,
     _authorized,
@@ -289,6 +290,63 @@ class ServerArticleTextTests(unittest.TestCase):
 
 
 class ServerApiTests(unittest.TestCase):
+    def test_stats_endpoint_summarizes_full_database_and_sections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "articles.sqlite3"
+            with ArticleStore(database_path) as store:
+                first = store.upsert_feed_item(
+                    FeedItem(
+                        title="Asia story",
+                        link="https://www.economist.com/asia/2026/08/20/story",
+                        guid="asia-story",
+                        published="Thu, 20 Aug 2026 12:00:00 +0000",
+                        categories=["Asia", "Interactive"],
+                    )
+                )
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="Business story",
+                        link="https://www.economist.com/business/2026/08/21/story",
+                        guid="business-story",
+                        published="Fri, 21 Aug 2026 12:00:00 +0000",
+                        categories=["Business"],
+                    )
+                )
+                store.save_article_content(
+                    first,
+                    content_html="<p>Full text</p>",
+                    content_text="Full text",
+                    content_source="test",
+                )
+                store.set_state("last_refresh_at", "2026-08-25T12:00:00+00:00")
+                store.set_state("current_issue_id", "2026-08-22")
+                store.set_state("current_issue_article_count", "74")
+
+            response = _api_stats_response(
+                AppConfig(feeds=[], database_path=str(database_path))
+            )
+
+            self.assertEqual(response["articles"]["total"], 2)
+            self.assertEqual(response["articles"]["full_text"], 1)
+            self.assertEqual(response["articles"]["metadata_only"], 1)
+            self.assertEqual(
+                response["articles"]["full_text_coverage_percent"],
+                50.0,
+            )
+            self.assertEqual(response["sections"]["total"], 3)
+            self.assertEqual(
+                {section["name"] for section in response["sections"]["values"]},
+                {"Asia", "Business", "Interactive"},
+            )
+            self.assertEqual(
+                response["refresh"]["last_refresh_at"],
+                "2026-08-25T12:00:00+00:00",
+            )
+            self.assertEqual(
+                response["refresh"]["current_issue_article_count"],
+                74,
+            )
+
     def test_search_is_local_first_and_feed_scope_is_metadata_only(self):
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory) / "articles.sqlite3"

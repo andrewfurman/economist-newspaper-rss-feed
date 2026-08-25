@@ -2,14 +2,16 @@
 
 Small React Router app for inspecting the private RSS feed.
 
-The reader has three top-level views:
+The reader has four top-level views:
 
-- **Raw RSS** shows the latest RSS XML in formatted or compact form.
+- **Raw RSS** shows the latest RSS document as expandable sections and items.
 - **Recent articles** shows the default current-issue feed in a sortable,
-  locally filterable table.
+  locally filterable table. Open a title to read the cached plain-text article.
 - **Search** queries the local back catalog by keywords, inclusive start/end
   dates, section, and result limit. Search state remains in the browser URL so
   it can be bookmarked without exposing feed credentials.
+- **Database stats** reports article and section totals, full-text coverage,
+  refresh state, catalog coverage, and content fetch statuses from SQLite.
 
 ## Local Development
 
@@ -35,10 +37,22 @@ Build the static app and serve `dist/` from the web server:
 npm run build
 ```
 
+For a subpath deployment, set the base path only at build time:
+
+```bash
+VITE_BASE_PATH=/reader/ npm run build
+```
+
 In production, keep the private feed token on the server. The browser calls
 `GET /api/feed?limit=50&category=United%20States`; the reverse proxy should
 rewrite that request to the authenticated backend RSS route and inject the
 private token or authorization header server-side.
+
+The browser also calls `GET /api/stats` for database-level statistics and
+`GET /api/article-text?url=...` for a selected article. The reverse proxy maps
+the latter to the backend `/article.txt` route. Both routes must receive the
+same server-side feed authentication; credentials are never bundled into the
+client.
 
 Catalog searches use the same proxy, for example:
 

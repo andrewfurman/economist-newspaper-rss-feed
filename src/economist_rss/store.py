@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 import json
@@ -65,6 +66,12 @@ class CatalogStats:
     latest_published_at: str | None
     issues_discovered: int
     issues_failed: int
+
+
+@dataclass(frozen=True)
+class CategoryStat:
+    name: str
+    article_count: int
 
 
 class ArticleStore:
@@ -449,6 +456,38 @@ class ArticleStore:
             issues_discovered=int(issues["discovered"] or 0),
             issues_failed=int(issues["failed"] or 0),
         )
+
+    def category_stats(self) -> list[CategoryStat]:
+        counts: Counter[str] = Counter()
+        rows = self.conn.execute("select categories from articles").fetchall()
+        for row in rows:
+            counts.update(set(_decode_categories(row["categories"])))
+        return [
+            CategoryStat(name=name, article_count=article_count)
+            for name, article_count in sorted(
+                counts.items(),
+                key=lambda item: (-item[1], item[0].casefold()),
+            )
+        ]
+
+    def content_status_counts(self) -> dict[str, int]:
+        rows = self.conn.execute(
+            """
+            select coalesce(nullif(content_status, ''), 'not_fetched') as status,
+                   count(*) as article_count
+            from articles
+            group by coalesce(nullif(content_status, ''), 'not_fetched')
+            order by article_count desc, status asc
+            """
+        ).fetchall()
+        return {str(row["status"]): int(row["article_count"]) for row in rows}
+
+    def queued_article_count(self) -> int:
+        row = self.conn.execute(
+            "select count(*) as article_count "
+            "from articles where fetch_requested_at is not null"
+        ).fetchone()
+        return int(row["article_count"] or 0)
 
     def mark_fetch_error(self, article: StoredArticle, *, status: str, error: str) -> None:
         timestamp = now_iso()

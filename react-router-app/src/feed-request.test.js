@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildArticleTextUrl,
   buildApiFeedUrl,
+  buildStatsUrl,
   hasCatalogSearch,
   searchParamsFromRequest,
   searchRequestFromParams,
@@ -41,5 +43,24 @@ test("search request state round-trips through bookmark parameters", () => {
 
   assert.deepEqual(searchRequestFromParams(params), request);
   assert.equal(hasCatalogSearch(request), true);
-  assert.equal(hasCatalogSearch({ category: "Asia", limit: 20 }), false);
+  assert.equal(hasCatalogSearch({ category: "Asia", limit: 20 }), true);
+});
+
+test("article and stats URLs stay on the reader origin", () => {
+  const article = buildArticleTextUrl(
+    {
+      link: "https://www.economist.com/asia/2026/08/25/story",
+      guid: "story-guid",
+    },
+    "https://reader.example"
+  );
+  const stats = buildStatsUrl("https://reader.example");
+
+  assert.equal(article.pathname, "/api/article-text");
+  assert.equal(
+    article.searchParams.get("url"),
+    "https://www.economist.com/asia/2026/08/25/story"
+  );
+  assert.equal(article.searchParams.get("guid"), null);
+  assert.equal(stats.href, "https://reader.example/api/stats");
 });
