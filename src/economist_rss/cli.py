@@ -87,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.output_limit is not None
             else config.rss_item_limit,
             published_after=cutoff_datetime(config.article_lookback_days),
+            current_issue_only=config.current_issue_filter_enabled,
         )
 
     if not items:
@@ -232,6 +233,12 @@ def _with_cli_feeds(config: AppConfig, feed_urls: list[str], limit: int | None) 
         login_url=config.login_url,
         verify_url=config.verify_url,
         exclude_url_patterns=config.exclude_url_patterns,
+        current_issue_filter_enabled=config.current_issue_filter_enabled,
+        weekly_edition_base_url=config.weekly_edition_base_url,
+        current_issue_refresh_interval_seconds=(
+            config.current_issue_refresh_interval_seconds
+        ),
+        current_issue_lookahead_days=config.current_issue_lookahead_days,
         world_in_brief_enabled=config.world_in_brief_enabled,
         world_in_brief_url=config.world_in_brief_url,
         world_in_brief_refresh_interval_seconds=(
@@ -271,6 +278,12 @@ def _with_browser_overrides(
         login_url=config.login_url,
         verify_url=config.verify_url,
         exclude_url_patterns=config.exclude_url_patterns,
+        current_issue_filter_enabled=config.current_issue_filter_enabled,
+        weekly_edition_base_url=config.weekly_edition_base_url,
+        current_issue_refresh_interval_seconds=(
+            config.current_issue_refresh_interval_seconds
+        ),
+        current_issue_lookahead_days=config.current_issue_lookahead_days,
         world_in_brief_enabled=config.world_in_brief_enabled,
         world_in_brief_url=config.world_in_brief_url,
         world_in_brief_refresh_interval_seconds=(

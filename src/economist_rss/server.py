@@ -87,7 +87,10 @@ class EconomistRssServer:
                             limit=item_limit,
                             published_after=cutoff_datetime(
                                 owner.config.article_lookback_days
-                            )
+                            ),
+                            current_issue_only=(
+                                owner.config.current_issue_filter_enabled
+                            ),
                         )
                         if category_filters:
                             feed_items = _filter_items_by_category(
