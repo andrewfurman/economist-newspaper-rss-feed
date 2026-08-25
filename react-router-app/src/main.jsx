@@ -702,7 +702,10 @@ function DatabaseStatsPage() {
               <h3>Current catalog</h3>
               <dl className="stats-list">
                 <StatRow label="Current issue" value={refresh.current_issue_date || refresh.current_issue_id || "Unknown"} />
-                <StatRow label="Current issue articles" value={formatNumber(refresh.current_issue_article_count)} />
+                <StatRow
+                  label="Default feed articles"
+                  value={formatNumber(refresh.default_feed_article_count)}
+                />
                 <StatRow label="Issues discovered" value={formatNumber(catalog.issues_discovered)} />
                 <StatRow label="Issues failed" value={formatNumber(catalog.issues_failed)} />
                 <StatRow label="Last catalog discovery" value={formatOptionalDate(catalog.last_discovery_at)} />

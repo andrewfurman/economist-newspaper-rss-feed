@@ -346,6 +346,10 @@ class ServerApiTests(unittest.TestCase):
                 response["refresh"]["current_issue_article_count"],
                 74,
             )
+            self.assertEqual(
+                response["refresh"]["default_feed_article_count"],
+                1,
+            )
 
     def test_search_is_local_first_and_feed_scope_is_metadata_only(self):
         with tempfile.TemporaryDirectory() as directory:
