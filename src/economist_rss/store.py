@@ -555,6 +555,55 @@ class ArticleStore:
             return items[:limit]
         return items
 
+    def feed_item_count(
+        self,
+        *,
+        published_after: datetime | None = None,
+        current_issue_only: bool = False,
+    ) -> int:
+        params: list[object] = []
+        where = [
+            "content_status = 'ok'",
+            "content_html is not null",
+            "content_html != ''",
+        ]
+        if published_after is not None:
+            where.append("(published_at is null or published_at >= ?)")
+            params.append(published_after.isoformat())
+        rows = self.conn.execute(
+            """
+            select url, guid, title, published, published_at, categories, issue_id
+            from articles
+            where """ + " and ".join(where) + """
+            order by
+              case when published_at is null or published_at = '' then 1 else 0 end,
+              published_at desc,
+              fetched_at desc
+            """,
+            params,
+        ).fetchall()
+        if current_issue_only:
+            rows = _filter_current_issue_rows(rows, _current_issue_filter(self))
+
+        seen_brief_groups: set[str] = set()
+        count = 0
+        for row in rows:
+            brief_group = _brief_item_group(
+                FeedItem(
+                    title=row["title"] or "Untitled",
+                    link=row["url"] or "",
+                    guid=row["guid"] or row["url"] or "",
+                    published=row["published"],
+                    categories=_decode_categories(row["categories"]),
+                )
+            )
+            if brief_group is not None:
+                if brief_group in seen_brief_groups:
+                    continue
+                seen_brief_groups.add(brief_group)
+            count += 1
+        return count
+
     def search_items(
         self,
         *,

@@ -538,6 +538,7 @@ class ArticleStoreTests(unittest.TestCase):
                 self.assertIn("The US in Brief: latest update", titles)
                 self.assertNotIn("The US in Brief: old update", titles)
                 self.assertIn("Regular story", titles)
+                self.assertEqual(store.feed_item_count(), 3)
 
                 stored_old_world = store.get_article(old_world.canonical_url)
                 stored_old_us = store.get_article(old_us.canonical_url)

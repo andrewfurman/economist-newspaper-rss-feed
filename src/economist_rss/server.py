@@ -427,6 +427,10 @@ def _api_stats_response(config: AppConfig) -> dict[str, object]:
         categories = store.category_stats()
         content_statuses = store.content_status_counts()
         queued_count = store.queued_article_count()
+        default_feed_count = store.feed_item_count(
+            published_after=cutoff_datetime(config.article_lookback_days),
+            current_issue_only=config.current_issue_filter_enabled,
+        )
         last_refresh_at = store.get_state("last_refresh_at")
         last_refresh_stop_reason = store.get_state("last_refresh_stop_reason")
         current_issue_id = store.get_state("current_issue_id")
@@ -469,6 +473,7 @@ def _api_stats_response(config: AppConfig) -> dict[str, object]:
         "refresh": {
             "last_refresh_at": last_refresh_at,
             "last_stop_reason": last_refresh_stop_reason or None,
+            "default_feed_article_count": default_feed_count,
             "current_issue_id": current_issue_id,
             "current_issue_date": current_issue_date,
             "current_issue_article_count": _optional_int(
