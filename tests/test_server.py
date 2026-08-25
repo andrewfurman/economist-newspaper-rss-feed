@@ -317,7 +317,7 @@ class ServerApiTests(unittest.TestCase):
                             "iran-strategy"
                         ),
                         guid="feed",
-                        summary="A regional policy shift",
+                        summary="<p>A regional &amp; policy shift</p>",
                         published="Fri, 31 Dec 1999 12:00:00 +0000",
                         categories=["Asia"],
                     )
@@ -339,6 +339,7 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual([item["guid"] for item in results], ["local", "feed"])
             self.assertEqual(results[0]["match_source"], "local_full_text")
             self.assertEqual(results[1]["match_source"], "economist_feed_metadata")
+            self.assertEqual(results[1]["snippet"], "A regional & policy shift")
             self.assertNotIn("content_text", results[0])
             self.assertNotIn("content_html", results[0])
             self.assertNotIn("SECRET BODY MARKER", str(response))

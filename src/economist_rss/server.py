@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import hmac
+from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -541,10 +542,23 @@ def _article_snippet(article: StoredArticle) -> str:
     raw = (article.summary or "").strip()
     if not raw and article.content_text:
         raw = article.content_text.strip()
-    normalized = " ".join(raw.split())
+    parser = _PlainTextParser()
+    parser.feed(raw)
+    parser.close()
+    normalized = " ".join(" ".join(parser.parts).split())
     if len(normalized) <= 320:
         return normalized
     return normalized[:317].rstrip() + "..."
+
+
+class _PlainTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self.parts.append(data)
 
 
 def _relative_article_url(path: str, article: StoredArticle) -> str:
