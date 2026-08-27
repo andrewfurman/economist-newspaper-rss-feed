@@ -3,6 +3,7 @@ import os
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from economist_rss.browser import BrowserResult
@@ -11,7 +12,11 @@ from economist_rss.extract import ArticleContent
 from economist_rss.fetch import FetchError, FetchResponse
 from economist_rss.feed import FeedItem
 from economist_rss.issue import CurrentIssue, IssueArticle
-from economist_rss.refresh import refresh, refresh_if_stale
+from economist_rss.refresh import (
+    _published_from_world_in_brief,
+    refresh,
+    refresh_if_stale,
+)
 from economist_rss.store import ArticleStore
 from economist_rss.util import now_iso
 
@@ -284,6 +289,41 @@ class RefreshRateLimitTests(unittest.TestCase):
                 )
                 self.assertEqual(payloads[1]["special_source"], "world_in_brief")
                 self.assertEqual(payloads[1]["status"], "ok")
+
+    def test_world_in_brief_published_time_prefers_body_update_marker(self):
+        now = datetime(2026, 8, 27, 18, 13, 4, tzinfo=timezone.utc)
+        text = (
+            "World in Brief: Nvidia's record earnings; catastrophic floods sweep Nepal "
+            "(updated 16m ago) Nvidia defied the notion of an AI bubble."
+        )
+
+        published = _published_from_world_in_brief(
+            text,
+            "https://www.economist.com/the-world-in-brief/2026/08/27/id",
+            now=now,
+        )
+
+        self.assertEqual(published, "Thu, 27 Aug 2026 17:57:04 +0000")
+
+    def test_world_in_brief_published_time_handles_hour_update_marker(self):
+        now = datetime(2026, 8, 27, 18, 13, 4, tzinfo=timezone.utc)
+        text = "World in Brief: Today's update (updated 2h ago)"
+
+        published = _published_from_world_in_brief(
+            text,
+            "https://www.economist.com/the-world-in-brief/2026/08/27/id",
+            now=now,
+        )
+
+        self.assertEqual(published, "Thu, 27 Aug 2026 16:13:04 +0000")
+
+    def test_world_in_brief_published_time_falls_back_to_url_date(self):
+        published = _published_from_world_in_brief(
+            "World in Brief: Today's update",
+            "https://www.economist.com/the-world-in-brief/2026/08/27/id",
+        )
+
+        self.assertEqual(published, "Thu, 27 Aug 2026 00:00:00 +0000")
 
     def test_ignore_refresh_interval_keeps_failed_article_backoff(self):
         feed_url = "https://www.economist.com/latest/rss.xml"

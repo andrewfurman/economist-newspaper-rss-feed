@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 import json
 import logging
@@ -30,6 +30,11 @@ from .util import canonical_url, cutoff_datetime, now_iso, parse_datetime
 
 LOGGER = logging.getLogger(__name__)
 WORLD_IN_BRIEF_DATE_RE = re.compile(r"/the-world-in-brief/(\d{4})/(\d{2})/(\d{2})/")
+WORLD_IN_BRIEF_UPDATED_RE = re.compile(
+    r"\bupdated\s+(?:(just now|moments ago)|(\d+)\s*"
+    r"(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\s+ago)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -494,7 +499,10 @@ def _refresh_world_in_brief_if_stale(
             link=final_url,
             guid=final_url,
             summary=_text_summary(browser_result.article.text),
-            published=_published_from_world_in_brief_url(final_url),
+            published=_published_from_world_in_brief(
+                browser_result.article.text,
+                final_url,
+            ),
             source="The World in Brief",
         )
         stored = store.upsert_feed_item(_normal_feed_item(item))
@@ -730,6 +738,47 @@ def _published_from_world_in_brief_url(url: str) -> str | None:
         return None
     year, month, day = (int(part) for part in match.groups())
     return format_datetime(datetime(year, month, day, tzinfo=timezone.utc))
+
+
+def _published_from_world_in_brief(
+    text: str,
+    url: str,
+    *,
+    now: datetime | None = None,
+) -> str | None:
+    updated_at = _world_in_brief_updated_datetime(text, now=now)
+    if updated_at is not None:
+        return format_datetime(updated_at)
+    return _published_from_world_in_brief_url(url)
+
+
+def _world_in_brief_updated_datetime(
+    text: str,
+    *,
+    now: datetime | None = None,
+) -> datetime | None:
+    match = WORLD_IN_BRIEF_UPDATED_RE.search(text or "")
+    if not match:
+        return None
+
+    resolved_now = now or datetime.now(timezone.utc)
+    if resolved_now.tzinfo is None:
+        resolved_now = resolved_now.replace(tzinfo=timezone.utc)
+    resolved_now = resolved_now.astimezone(timezone.utc)
+
+    instant = match.group(1)
+    if instant:
+        return resolved_now
+
+    amount = int(match.group(2))
+    unit = match.group(3).lower()
+    if unit.startswith("m"):
+        delta = timedelta(minutes=amount)
+    elif unit.startswith("h"):
+        delta = timedelta(hours=amount)
+    else:
+        delta = timedelta(days=amount)
+    return resolved_now - delta
 
 
 def _text_summary(text: str, *, limit: int = 320) -> str:
