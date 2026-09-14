@@ -7,6 +7,8 @@ from html import unescape
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
+from .article_links import article_text_url
+
 
 CONTENT_NS = "http://purl.org/rss/1.0/modules/content/"
 ATOM_NS = "http://www.w3.org/2005/Atom"
@@ -46,8 +48,10 @@ def build_rss(
     items: list[FeedItem],
     *,
     title: str = "The Economist private article feed",
-    link: str = "https://www.economist.com/",
+    link: str = "/",
     description: str = "Private RSS article index generated from authorized article fetches.",
+    article_base_url: str = "",
+    article_signing_key: str = "",
 ) -> str:
     rss = ET.Element("rss", {"version": "2.0"})
     channel = ET.SubElement(rss, "channel")
@@ -63,7 +67,12 @@ def build_rss(
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = feed_item.title
         if not _omits_item_link(feed_item):
-            ET.SubElement(item, "link").text = feed_item.link
+            ET.SubElement(item, "link").text = article_text_url(
+                feed_item.link,
+                feed_item.guid,
+                base_url=article_base_url,
+                signing_key=article_signing_key,
+            )
         ET.SubElement(item, "guid", {"isPermaLink": "false"}).text = feed_item.guid
         if feed_item.published:
             ET.SubElement(item, "pubDate").text = feed_item.published

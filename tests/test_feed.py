@@ -1,5 +1,6 @@
 import unittest
 import xml.etree.ElementTree as ET
+from urllib.parse import parse_qs, urlparse
 
 from economist_rss.feed import (
     CONTENT_NS,
@@ -159,8 +160,9 @@ class FeedTests(unittest.TestCase):
 
         self.assertIsNotNone(link)
         assert link is not None
+        self.assertEqual(urlparse(link.text).path, "/article.txt")
         self.assertEqual(
-            link.text,
+            parse_qs(urlparse(link.text).query)["url"][0],
             "https://www.economist.com/united-states/2026/06/24/story",
         )
         self.assertIsNotNone(description)

@@ -370,8 +370,8 @@ function FormattedRssViewer({ channel, items, loading, section }) {
                   </summary>
                   <div className="rss-item-content">
                     {item.link ? (
-                      <a href={item.link} target="_blank" rel="noreferrer">
-                        Original article <ExternalLink size={14} />
+                      <a href={buildArticleTextUrl(item).href} target="_blank" rel="noreferrer">
+                        Full text <ExternalLink size={14} />
                       </a>
                     ) : null}
                     <CategoryList categories={item.categories} />
@@ -908,11 +908,11 @@ function StoryTable({ emptyMessage, items, loading, returnTo }) {
                     {item.link ? (
                       <a
                         className="source-link"
-                        href={item.link}
+                        href={buildArticleTextUrl(item).href}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Original article <ExternalLink size={12} />
+                        Full text <ExternalLink size={12} />
                       </a>
                     ) : null}
                   </div>
@@ -1085,11 +1085,11 @@ function StoryDetailPage() {
         {item.link ? (
           <a
             className="icon-button"
-            href={item.link}
+            href={buildArticleTextUrl(item).href}
             target="_blank"
             rel="noreferrer"
-            title="Open original article"
-            aria-label="Open original article"
+            title="Open full text"
+            aria-label="Open full text"
           >
             <ExternalLink size={18} />
           </a>
@@ -1105,11 +1105,11 @@ function StoryDetailPage() {
           <dd>{item.categoryText || "None"}</dd>
         </div>
         <div>
-          <dt>Original</dt>
+          <dt>Full text</dt>
           <dd>
             {item.link ? (
-              <a href={item.link} target="_blank" rel="noreferrer">
-                Open article <ExternalLink size={13} />
+              <a href={buildArticleTextUrl(item).href} target="_blank" rel="noreferrer">
+                Open full text <ExternalLink size={13} />
               </a>
             ) : (
               "Included in RSS description"

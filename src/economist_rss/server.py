@@ -10,6 +10,7 @@ import os
 from threading import Lock
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
+from .article_links import article_link_key, public_base_url, unwrap_article_url
 from .config import AppConfig
 from .feed import FeedItem, build_rss, categories_for_item, category_for_slug
 from .refresh import refresh_if_stale
@@ -86,14 +87,14 @@ class EconomistRssServer:
                     self._send_json(payload, status=status)
                     return
                 if parsed.path == "/article.txt":
+                    lookup_key = _article_lookup_key(parsed.query)
                     if not _authorized(
                         self.headers.get("Authorization", ""),
                         parsed.query,
                         "ECONOMIST_FEED_TOKEN",
-                    ):
+                    ) and not _article_link_authorized(lookup_key, parsed.query):
                         self.send_error(401)
                         return
-                    lookup_key = _article_lookup_key(parsed.query)
                     if lookup_key is None:
                         self.send_error(400, "Missing url, link, or guid parameter")
                         return
@@ -126,6 +127,7 @@ class EconomistRssServer:
                             parsed.query,
                             path_category=path_category,
                             refresh_lock=owner.lock,
+                            article_base_url=public_base_url(self.headers),
                         )
                     except ValueError as exc:
                         self.send_error(400, str(exc))
@@ -249,6 +251,7 @@ def _rss_response(
     *,
     path_category: str | None = None,
     refresh_lock: Lock | None = None,
+    article_base_url: str = "",
 ) -> str:
     requested_limit = _rss_item_limit(query, config.rss_item_limit)
     catalog_search = _catalog_search_query(query)
@@ -287,6 +290,9 @@ def _rss_response(
             feed_items,
             title=_rss_title(category_filters, catalog_search),
             description=_rss_description(category_filters, catalog_search),
+            link=article_base_url or "/",
+            article_base_url=article_base_url,
+            article_signing_key=os.environ.get("ECONOMIST_FEED_TOKEN", ""),
         )
 
 
@@ -786,8 +792,19 @@ def _article_lookup_key(query: str) -> str | None:
         for value in parsed.get(parameter, []):
             lookup_key = value.strip()
             if lookup_key:
-                return lookup_key
+                return unwrap_article_url(lookup_key)
     return None
+
+
+def _article_link_authorized(lookup_key: str | None, query: str) -> bool:
+    secret = os.environ.get("ECONOMIST_FEED_TOKEN", "")
+    if not secret or not lookup_key:
+        return False
+    expected = article_link_key(lookup_key, secret)
+    return any(
+        hmac.compare_digest(candidate.encode("utf-8"), expected.encode("ascii"))
+        for candidate in parse_qs(query).get("key", [])
+    )
 
 
 def _article_text_body(article: StoredArticle | None) -> str | None:

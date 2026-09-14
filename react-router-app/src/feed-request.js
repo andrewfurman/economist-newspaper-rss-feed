@@ -45,10 +45,10 @@ export function buildArticleTextUrl(item, origin = window.location.origin) {
   const url = new URL("/api/article-text", origin);
   const link = String(item.link || "").trim();
   const guid = String(item.guid || "").trim();
-  if (link) {
-    url.searchParams.set("url", link);
-  } else if (guid) {
+  if (guid) {
     url.searchParams.set("guid", guid);
+  } else if (link) {
+    url.searchParams.set("url", link);
   }
   return url;
 }

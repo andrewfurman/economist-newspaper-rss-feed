@@ -39,6 +39,12 @@ read-only feed token, and a separate private refresh token. The refresh token
 also authorizes `POST /api/articles/fetch`; send it only in an Authorization
 header, never in a URL.
 
+Set `ECONOMIST_PUBLIC_BASE_URL` to the public HTTPS base serving `/article.txt`.
+RSS article links use that address and an article-specific signed key. The
+reverse proxy must forward `/article.txt` and its query parameters to the RSS
+service so a link can open without a separate authorization header. Rotating
+`ECONOMIST_FEED_TOKEN` also invalidates previously generated article links.
+
 In `/etc/economist-rss/feeds.toml`, use persistent data paths:
 
 ```toml

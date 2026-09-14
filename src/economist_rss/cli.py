@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 
 from .browser import authenticate_browser
+from .article_links import public_base_url
 from .catalog import (
     DIGITAL_ARCHIVE_START,
     backfill_catalog_content,
@@ -156,7 +157,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(build_rss(items), encoding="utf-8")
+    article_base_url = public_base_url()
+    output_path.write_text(
+        build_rss(
+            items,
+            link=article_base_url or "/",
+            article_base_url=article_base_url,
+            article_signing_key=os.environ.get("ECONOMIST_FEED_TOKEN", ""),
+        ),
+        encoding="utf-8",
+    )
     print(f"Wrote {len(items)} cached summary items to {output_path}", file=sys.stderr)
     return 0
 

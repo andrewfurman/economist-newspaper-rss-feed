@@ -7,6 +7,8 @@ The reader has four top-level views:
 - **Raw RSS** shows the latest RSS document as expandable sections and items.
 - **Recent articles** shows the default current-issue feed in a sortable,
   locally filterable table. Open a title to read the cached plain-text article.
+  **Full text** links also open cached text through the reader's same-origin
+  proxy, using the stable article GUID rather than the RSS link URL.
 - **Search** queries the local back catalog by keywords, inclusive start/end
   dates, section, and result limit. Search state remains in the browser URL so
   it can be bookmarked without exposing feed credentials.

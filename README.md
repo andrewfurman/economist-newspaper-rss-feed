@@ -94,9 +94,24 @@ membership is available again as soon as the weekly-edition page can be fetched.
 The generated feed is RSS 2.0 and is intentionally lightweight. Each item
 includes `title`, `guid`, `pubDate`, a `description`, and one or more
 `category` values. Regular article items also include `link`. The feed does not
-embed full article HTML in `content:encoded`; callers should use `link` to open
-the original Economist article or a text endpoint when full article text is
-needed.
+embed full article HTML in `content:encoded`. Each regular article `link` opens
+the feed service's `/article.txt` endpoint with the article's cached full plain
+text, instead of navigating to The Economist website. Original article URLs
+remain lookup identifiers; GUIDs and section categories are unchanged.
+
+When feed authentication is enabled, these links include an article-specific
+signed `key` so they work when opened in a browser without an authorization
+header. The reusable feed token is never embedded in the link. A key grants
+access only to its article's cached text, not the feed or catalog APIs. Links
+remain valid until `ECONOMIST_FEED_TOKEN` is rotated; treat them as private
+article-sharing links.
+
+Set `ECONOMIST_PUBLIC_BASE_URL=https://feed.example.com` to the public base URL
+serving `/article.txt`, especially behind a reverse proxy or when generating
+static RSS with `build`. The HTTP server otherwise uses the request Host and
+`X-Forwarded-Proto` (HTTP by default). Static builds without a configured base
+produce root-relative text links and must be hosted on the text service's
+origin; configure the public base for RSS readers that require absolute URLs.
 
 The compact brief formats are the exception to the short-description rule.
 When cached full text is available, `The World in Brief` and United States/US
