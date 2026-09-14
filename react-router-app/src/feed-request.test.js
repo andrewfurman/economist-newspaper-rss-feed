@@ -57,10 +57,34 @@ test("article and stats URLs stay on the reader origin", () => {
   const stats = buildStatsUrl("https://reader.example");
 
   assert.equal(article.pathname, "/api/article-text");
-  assert.equal(
-    article.searchParams.get("url"),
-    "https://www.economist.com/asia/2026/08/25/story"
-  );
-  assert.equal(article.searchParams.get("guid"), null);
+  assert.equal(article.searchParams.get("url"), null);
+  assert.equal(article.searchParams.get("guid"), "story-guid");
   assert.equal(stats.href, "https://reader.example/api/stats");
+});
+
+test("full-text feed links use the stable article GUID through the reader proxy", () => {
+  const article = buildArticleTextUrl(
+    {
+      link: "https://feed.example/article.txt?url=source&key=article-key",
+      guid: "story-guid",
+    },
+    "https://reader.example"
+  );
+
+  assert.equal(article.origin, "https://reader.example");
+  assert.equal(article.pathname, "/api/article-text");
+  assert.equal(article.searchParams.get("guid"), "story-guid");
+  assert.equal(article.searchParams.get("url"), null);
+  assert.equal(article.searchParams.get("key"), null);
+});
+
+test("articles without GUIDs retain the link lookup fallback", () => {
+  for (const link of [
+    "https://www.economist.com/asia/2026/08/25/story",
+    "https://feed.example/article.txt?url=source&key=article-key",
+  ]) {
+    const article = buildArticleTextUrl({ link }, "https://reader.example");
+    assert.equal(article.searchParams.get("url"), link);
+    assert.equal(article.searchParams.get("guid"), null);
+  }
 });

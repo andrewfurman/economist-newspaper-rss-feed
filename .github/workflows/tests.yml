@@ -17,3 +17,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -e .
       - run: python -m unittest discover -s tests
+
+  reader:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: react-router-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: react-router-app/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
