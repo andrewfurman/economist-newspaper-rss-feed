@@ -315,6 +315,35 @@ def _word_count(parts: list[str] | tuple[str, ...] | Any) -> int:
     return sum(len(str(part).split()) for part in parts)
 
 
+
+def looks_like_paywall_excerpt(text: str) -> bool:
+    """True when extracted text still looks like a login/paywall teaser.
+
+    Subscriber teasers often clear a naive length check (~1.1k-1.6k chars)
+    because related-article lists and paywall CTAs inflate the body.
+    """
+    normalized = _squash_space(text or "").lower()
+    if not normalized:
+        return True
+    markers = (
+        "continue with a free trial",
+        "already have an account?",
+        "create a free account to unlock",
+        "get full access to our independent journalism",
+        "or create a free account to unlock just this article",
+        "this article is for subscribers",
+        "unlock just this article",
+        "start your free trial",
+    )
+    hits = sum(1 for marker in markers if marker in normalized)
+    if hits >= 1:
+        return True
+    compact = re.sub(r"[^a-z0-9]+", "", normalized)
+    if "continuewithafreetrial" in compact and "createaccount" in compact:
+        return True
+    return False
+
+
 def is_cloudflare_challenge(html: str) -> bool:
     text = html or ""
     return bool(
