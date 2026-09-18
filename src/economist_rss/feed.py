@@ -28,6 +28,11 @@ class FeedItem:
     content_text: str | None = None
     source: str | None = None
     categories: list[str] = field(default_factory=list)
+    # Optional edition metadata populated when reading from the local catalog
+    # edition_kind: "print_edition" | "online_only"
+    edition_kind: str | None = None
+    issue_id: str | None = None
+    issue_date: str | None = None
 
 
 def parse_feed(xml_text: str, source_name: str) -> list[FeedItem]:
@@ -65,7 +70,7 @@ def build_rss(
 
     for feed_item in items:
         item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = feed_item.title
+        ET.SubElement(item, "title").text = _title_with_edition_suffix(feed_item)
         if not _omits_item_link(feed_item):
             ET.SubElement(item, "link").text = article_text_url(
                 feed_item.link,
@@ -79,7 +84,7 @@ def build_rss(
         item_description = _item_description(feed_item)
         if item_description:
             ET.SubElement(item, "description").text = item_description
-        for category in categories_for_item(feed_item):
+        for category in categories_for_rss_item(feed_item):
             ET.SubElement(item, "category").text = category
 
     xml_body = ET.tostring(rss, encoding="unicode")
@@ -271,6 +276,36 @@ def categories_for_item(item: FeedItem) -> list[str]:
     categories.extend(categories_for_url(item.link))
     categories.extend(categories_for_title(item.title))
     return _unique_nonempty(categories)
+
+def categories_for_rss_item(item: FeedItem) -> list[str]:
+    """
+    Augment base categories with an edition label for RSS output only.
+    We avoid persisting edition labels into stored categories, since
+    issue membership can be discovered later.
+    """
+    categories = categories_for_item(item)
+    label = _edition_label_for_item(item)
+    if label:
+        categories.append(label)
+    return _unique_nonempty(categories)
+
+def _edition_label_for_item(item: FeedItem) -> str | None:
+    kind = (item.edition_kind or "").strip().casefold()
+    # Prefer explicit edition_kind when present
+    if kind == "print_edition":
+        return "Print Edition"
+    if kind == "online_only":
+        return "Online Only"
+    # Fallback: infer print edition from explicit issue_id when edition_kind is absent
+    if (item.issue_id or "").strip():
+        return "Print Edition"
+    return None
+
+def _title_with_edition_suffix(item: FeedItem) -> str:
+    suffix = _edition_label_for_item(item)
+    if not suffix:
+        return item.title
+    return f"{item.title} [{suffix}]"
 
 
 def category_for_slug(slug: str) -> str:

@@ -298,19 +298,36 @@ def _fetch_issue_page(
     try:
         response = fetcher.fetch_text(url)
     except FetchError as exc:
+        # Retry once with a more browser-like user agent to reduce false 403s.
         if exc.status_code in {403, 429}:
-            status = "rate_limited"
-        elif exc.status_code == 404:
-            status = "not_found"
+            try:
+                chrome_like_ua = (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+                )
+                fallback = Fetcher(
+                    user_agent=chrome_like_ua,
+                    timeout_seconds=config.timeout_seconds,
+                )
+                response = fallback.fetch_text(url)
+            except FetchError as retry_exc:
+                status = "rate_limited"
+                return _PageFetch(
+                    ok=False,
+                    status=status,
+                    message=str(retry_exc),
+                    source="weeklyedition_http",
+                    http_status=retry_exc.status_code,
+                )
         else:
-            status = "fetch_failed"
-        return _PageFetch(
-            ok=False,
-            status=status,
-            message=str(exc),
-            source="weeklyedition_http",
-            http_status=exc.status_code,
-        )
+            status = "not_found" if exc.status_code == 404 else "fetch_failed"
+            return _PageFetch(
+                ok=False,
+                status=status,
+                message=str(exc),
+                source="weeklyedition_http",
+                http_status=exc.status_code,
+            )
     if is_cloudflare_challenge(response.text):
         return _PageFetch(
             ok=False,

@@ -547,6 +547,9 @@ class ArticleStore:
                 content_text=row["content_text"],
                 source=row["source"],
                 categories=_decode_categories(row["categories"]),
+                edition_kind=("print_edition" if (row["issue_id"] or "").strip() else "online_only"),
+                issue_id=row["issue_id"],
+                issue_date=row["issue_date"],
             )
             for row in rows
         ]
@@ -887,6 +890,9 @@ def _article_to_feed_item(article: StoredArticle) -> FeedItem:
         content_text=article.content_text,
         source=article.source,
         categories=article.categories,
+        edition_kind=("print_edition" if (article.issue_id or "").strip() else "online_only"),
+        issue_id=article.issue_id,
+        issue_date=article.issue_date,
     )
 
 
