@@ -1089,7 +1089,6 @@ dd {
   gap: 6px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-snap-type: x proximity;
   padding: 2px 2px 10px;
   scrollbar-width: thin;
 }
@@ -1103,7 +1102,6 @@ dd {
   color: #343a40;
   font: inherit;
   font-size: 0.86rem;
-  scroll-snap-align: start;
 }
 .paper-tabs button[aria-selected="true"] {
   background: #bb1c29;

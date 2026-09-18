@@ -327,9 +327,9 @@ function SectionsPage() {
 
   React.useEffect(() => {
     tabsRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({
-      block: "nearest", inline: "nearest", behavior: "instant",
+      block: "nearest", inline: "center", behavior: "instant",
     });
-  }, [section]);
+  }, [section, groups.length]);
 
   function selectSection(name, focusTab = false) {
     setSearchParams(name ? { section: name } : {});
