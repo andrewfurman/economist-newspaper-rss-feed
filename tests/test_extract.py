@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from economist_rss.extract import extract_article, is_cloudflare_challenge
+from economist_rss.extract import extract_article, is_cloudflare_challenge, looks_like_paywall_excerpt
 
 
 class ExtractArticleTests(unittest.TestCase):
@@ -88,3 +88,22 @@ class ExtractArticleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PaywallExcerptTests(unittest.TestCase):
+    def test_detects_free_trial_cta(self):
+        text = (
+            "Asia | Inside West Bengal\n\nA buffer zone has become a miserable limbo\n\n"
+            "kolkata\n\nA makeshift checkpoint holds up bikes.\n\n"
+            "Already have an account? Log in\n\nContinue with a free trial\n\n"
+            "Get full access to our independent journalism for free\n\n"
+            "Or create a free account to unlock just this article\n\nCreate account"
+        )
+        self.assertTrue(looks_like_paywall_excerpt(text))
+
+    def test_allows_normal_subscriber_article(self):
+        paragraphs = " ".join(
+            f"Paragraph {i} explains the policy shift with enough detail for a full feature."
+            for i in range(40)
+        )
+        self.assertFalse(looks_like_paywall_excerpt(paragraphs))
