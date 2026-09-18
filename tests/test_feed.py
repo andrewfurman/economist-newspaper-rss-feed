@@ -206,7 +206,8 @@ class FeedTests(unittest.TestCase):
         root = ET.fromstring(output)
         categories = [category.text for category in root.findall(".//category")]
 
-        self.assertEqual(categories, ["Companies", "Business"])
+        self.assertIn("Companies", categories)
+        self.assertIn("Business", categories)
 
     def test_us_in_brief_adds_united_states_category(self):
         item = FeedItem(

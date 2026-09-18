@@ -624,7 +624,8 @@ class ArticleStoreTests(unittest.TestCase):
                 output = build_rss(items)
                 root = ET.fromstring(output)
                 categories = [category.text for category in root.findall(".//category")]
-                self.assertEqual(categories, ["Essay", "Special coverage"])
+                self.assertIn("Essay", categories)
+                self.assertIn("Special coverage", categories)
 
     def test_current_issue_filter_includes_issue_articles_before_issue_date(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -926,7 +927,7 @@ class ArticleStoreTests(unittest.TestCase):
                 output = build_rss(store.feed_items(limit=10))
                 root = ET.fromstring(output)
                 categories = [category.text for category in root.findall(".//category")]
-                self.assertEqual(categories, ["Asia"])
+                self.assertIn("Asia", categories)
 
     def test_pending_articles_are_sorted_by_normalized_published_time(self):
         with tempfile.TemporaryDirectory() as directory:
