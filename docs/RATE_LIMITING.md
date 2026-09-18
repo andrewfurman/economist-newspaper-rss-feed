@@ -1,5 +1,9 @@
 # Rate-Limiting Notes
 
+For the latest production measurements and proposed slower schedules, see
+[the September 18 review](SEPTEMBER_2026_REVIEW.md). Settings below describe
+the existing deployment; the proposed changes have not been deployed.
+
 This project should avoid looking like a crawler. The goal is to refresh a
 single subscriber's private RSS cache, not to mirror The Economist.
 

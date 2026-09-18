@@ -41,7 +41,8 @@ import {
   searchParamsFromRequest,
   searchRequestFromParams,
 } from "./feed-request.js";
-import { editionLabelFromCategories } from "./edition.js";
+import { EDITION_NS, editionLabel, normalizeEdition } from "./edition.js";
+import { deduplicateArticles, groupItemsBySection } from "./sections.js";
 import "./styles.css";
 
 const FeedContext = createContext(null);
@@ -63,8 +64,9 @@ const router = createBrowserRouter(
       path: "/",
       element: <AppShell />,
       children: [
-        { index: true, element: <Navigate to="/recent" replace /> },
+        { index: true, element: <Navigate to="/sections" replace /> },
         { path: "raw", element: <RawFeedPage /> },
+        { path: "sections", element: <SectionsPage /> },
         { path: "recent", element: <RecentArticlesPage /> },
         { path: "search", element: <CatalogSearchPage /> },
         { path: "stats", element: <DatabaseStatsPage /> },
@@ -222,13 +224,17 @@ function AppShell() {
           <h1>The Economist</h1>
         </div>
         <nav className="tabs" aria-label="Reader views">
-          <NavLink to="/raw">
+          <NavLink to="/sections">
             <Braces size={17} />
-            Raw RSS
+            Newspaper sections
           </NavLink>
           <NavLink to="/recent">
             <FileText size={17} />
             Recent articles
+          </NavLink>
+          <NavLink to="/raw">
+            <Braces size={17} />
+            Raw RSS
           </NavLink>
           <NavLink to="/search">
             <Search size={17} />
@@ -248,10 +254,64 @@ function AppShell() {
 }
 
 function RawFeedPage() {
-  const { channel, error, items, loadFeed, loading } = useFeed();
+  const { channel, error, items, loadFeed, loading, rawXml } = useFeed();
   const [request, setRequest] = useState({ limit: DEFAULT_LIMIT });
-  const [section, setSection] = useState("");
   const loaded = useRef(false);
+  React.useEffect(() => {
+    if (!loaded.current) {
+      loaded.current = true;
+      loadFeed(request);
+    }
+  }, []);
+  // Show every RSS entry here, including aliases, so this view reflects the XML.
+  const entries = useMemo(() => rawXml ? parseRss(rawXml).entries : [], [rawXml]);
+  return (
+    <section className="view-layout">
+      <ViewHeader eyebrow="RSS document" title="Formatted RSS feed">
+        <a className="raw-feed-link" href={buildApiFeedUrl(request)} target="_blank" rel="noreferrer">
+          Open actual raw RSS <ExternalLink size={16} />
+        </a>
+      </ViewHeader>
+      <FeedRequestToolbar request={request} setRequest={setRequest} loading={loading}
+        onReload={() => loadFeed(request)} />
+      {error ? <div className="error-banner">{error}</div> : null}
+      {channel ? <header className="rss-channel-header">
+        <div><strong>{channel.title}</strong><span>{channel.description}</span></div>
+        <span>{entries.length} RSS entries · {items.length} unique articles</span>
+      </header> : null}
+      <div className="rss-document-items">
+        {entries.map((item) => <details className="rss-item-card" key={item.id}>
+          <summary>
+            <span>{item.title}</span>
+            <time>{item.published ? formatDateTime(item.published) : "Undated"}</time>
+            <EditionBadge editionKind={item.editionKind} />
+          </summary>
+          <div className="rss-item-content">
+            <CategoryList categories={item.categories} />
+            {item.description ? <p>{item.description}</p> : null}
+            <dl className="rss-field-list">
+              {item.fields.map((field) => <div key={`${field.name}-${field.index}`}>
+                <dt>{field.name}</dt><dd>{field.value || "None"}</dd>
+              </div>)}
+            </dl>
+          </div>
+        </details>)}
+      </div>
+      {!entries.length && !error ? <div className="empty-state">
+        {loading ? "Loading RSS..." : "The feed has no entries."}
+      </div> : null}
+    </section>
+  );
+}
+
+function SectionsPage() {
+  const { error, items, loadFeed, loading } = useFeed();
+  const [request, setRequest] = useState({ limit: DEFAULT_LIMIT });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const section = searchParams.get("section") || "";
+  const loaded = useRef(false);
+  const tabsRef = useRef(null);
+  const panelRef = useRef(null);
 
   React.useEffect(() => {
     if (!loaded.current) {
@@ -259,49 +319,74 @@ function RawFeedPage() {
       loadFeed(request);
     }
   }, []);
-
-  const categories = useMemo(() => uniqueCategories(items), [items]);
+  const groups = useMemo(() => groupItemsBySection(items), [items]);
+  const tabs = ["", ...groups.map((group) => group.name)];
+  const currentIndex = tabs.indexOf(section);
   const visibleItemCount = section
-    ? items.filter((item) => item.categories.includes(section)).length
-    : items.length;
+    ? groups.find((group) => group.name === section)?.items.length || 0 : items.length;
+
+  React.useEffect(() => {
+    tabsRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({
+      block: "nearest", inline: "center", behavior: "instant",
+    });
+  }, [section, groups.length]);
+
+  function selectSection(name, focusTab = false) {
+    setSearchParams(name ? { section: name } : {});
+    if (focusTab) requestAnimationFrame(() => {
+      tabsRef.current?.querySelector('[aria-selected="true"]')?.focus();
+    });
+  }
+  function handleTabKey(event, index) {
+    let next;
+    if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+    if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = tabs.length - 1;
+    if (next !== undefined) {
+      event.preventDefault(); selectSection(tabs[next], true);
+    }
+  }
+  function stepSection(offset) {
+    const next = Math.min(tabs.length - 1, Math.max(0, currentIndex + offset));
+    selectSection(tabs[next]);
+    panelRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+  }
+
   return (
     <section className="view-layout">
-      <ViewHeader eyebrow="RSS document" title="Raw RSS feed" />
-      <FeedRequestToolbar
-        request={request}
-        setRequest={setRequest}
-        loading={loading}
-        onReload={() => loadFeed(request)}
-      />
-      <div className="view-controls">
-        <label className="section-select">
-          <span>Section</span>
-          <select value={section} onChange={(event) => setSection(event.target.value)}>
-            <option value="">All sections</option>
-            {categories.map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="result-count">
-          {visibleItemCount.toLocaleString()}
-          {section ? ` of ${items.length.toLocaleString()}` : ""} RSS items
-        </span>
+      <ViewHeader eyebrow="Explore the newspaper" title="Newspaper sections" />
+      <FeedRequestToolbar request={request} setRequest={setRequest} loading={loading}
+        onReload={() => loadFeed(request)} />
+      <div className="section-navigation">
+        <div className="paper-tabs" role="tablist" aria-label="Newspaper sections" ref={tabsRef}>
+          {tabs.map((name, index) => <button key={name} id={`paper-tab-${index}`} role="tab"
+            aria-selected={section === name} aria-controls="paper-section-panel"
+            tabIndex={section === name ? 0 : -1} onClick={() => selectSection(name)}
+            onKeyDown={(event) => handleTabKey(event, index)}>
+            {name || "All sections"}
+          </button>)}
+        </div>
+        <div className="section-stepper">
+          <button type="button" disabled={currentIndex <= 0} onClick={() => stepSection(-1)}>
+            <ArrowLeft size={16} /> Previous section
+          </button>
+          <span>{visibleItemCount} articles</span>
+          <button type="button" disabled={currentIndex >= tabs.length - 1} onClick={() => stepSection(1)}>
+            Next section <ChevronRight size={16} />
+          </button>
+        </div>
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
-      <FormattedRssViewer
-        channel={channel}
-        items={items}
-        loading={loading}
-        section={section}
-      />
+      <div id="paper-section-panel" role="tabpanel" ref={panelRef} tabIndex={0}
+        aria-labelledby={currentIndex >= 0 ? `paper-tab-${currentIndex}` : undefined}>
+        <SectionsExplorer items={items} loading={loading} section={section} />
+      </div>
     </section>
   );
 }
 
-function FormattedRssViewer({ channel, items, loading, section }) {
+function SectionsExplorer({ items, loading, section }) {
   const groups = useMemo(() => groupItemsBySection(items, section), [items, section]);
   const [expandedSections, setExpandedSections] = useState(new Set());
 
@@ -321,20 +406,19 @@ function FormattedRssViewer({ channel, items, loading, section }) {
     });
   }
 
-  if (!items.length) {
+  if (!groups.length) {
     return (
       <div className="empty-state">
-        {loading ? "Loading formatted RSS..." : "The RSS feed has no items."}
+        {loading ? "Loading sections..." : "No articles in this section."}
       </div>
     );
   }
 
   return (
-    <section className="formatted-rss" aria-label="Formatted RSS">
-      <header className="rss-channel-header">
+    <section className="formatted-rss" aria-label="Newspaper sections">
+      {!section ? <header className="rss-channel-header">
         <div>
-          <strong>{channel?.title || "RSS feed"}</strong>
-          <span>{channel?.description || ""}</span>
+          <strong>All newspaper sections</strong>
         </div>
         <div className="expand-actions">
           <button
@@ -349,7 +433,10 @@ function FormattedRssViewer({ channel, items, loading, section }) {
             Collapse all
           </button>
         </div>
-      </header>
+      </header> : null}
+      {section === "Online" ? <p className="online-collection-note">
+        Online-only articles also appear in their newspaper sections.
+      </p> : null}
       <div className="rss-section-list">
         {groups.map((group) => (
           <details
@@ -368,6 +455,7 @@ function FormattedRssViewer({ channel, items, loading, section }) {
                   <summary>
                     <span>{item.title}</span>
                     <time>{item.published ? formatDateTime(item.published) : "Undated"}</time>
+                    <EditionBadge editionKind={item.editionKind} />
                   </summary>
                   <div className="rss-item-content">
                     {item.link ? (
@@ -377,14 +465,6 @@ function FormattedRssViewer({ channel, items, loading, section }) {
                     ) : null}
                     <CategoryList categories={item.categories} />
                     {item.description ? <p>{item.description}</p> : null}
-                    <dl className="rss-field-list">
-                      {item.fields.map((field) => (
-                        <div key={`${field.name}-${field.index}`}>
-                          <dt>{field.name}</dt>
-                          <dd>{field.value || "None"}</dd>
-                        </div>
-                      ))}
-                    </dl>
                   </div>
                 </details>
               ))}
@@ -906,7 +986,7 @@ function StoryTable({ emptyMessage, items, loading, returnTo }) {
                     <Link to={`/stories/${item.id}`} state={{ from: returnTo }}>
                       {item.title}
                     </Link>
-                    <EditionBadge categories={item.categories} />
+                    <EditionBadge editionKind={item.editionKind} />
                     {item.link ? (
                       <a
                         className="source-link"
@@ -1084,7 +1164,7 @@ function StoryDetailPage() {
           <p className="eyebrow">
             {item.categoryText || "Uncategorized"}
           </p>
-          <EditionBadge categories={item.categories} />
+          <EditionBadge editionKind={item.editionKind} />
           <h2>{item.title}</h2>
         </div>
         {item.link ? (
@@ -1145,13 +1225,16 @@ function StoryDetailPage() {
   );
 }
 
-function EditionBadge({ categories }) {
-  const label = editionLabelFromCategories(categories);
+function EditionBadge({ editionKind }) {
+  const label = editionLabel(editionKind);
   if (!label) {
     return null;
   }
-  const kind = label === "Print Edition" ? "print" : "online";
-  return <span className={`edition-badge ${kind}`}>{label}</span>;
+  const kind = editionKind === "print_edition" ? "print" : editionKind === "online_only" ? "online" : "unknown";
+  return <span className={`edition-badge ${kind}`}
+    title={editionKind === "unknown" ? "Print status has not been verified for this article." : undefined}>
+    {label}
+  </span>;
 }
 
 function CategoryList({ categories }) {
@@ -1188,10 +1271,14 @@ function parseRss(xmlText) {
       name: child.tagName,
       value: normalizeText(child.textContent || ""),
     }));
-    const categories = Array.from(node.querySelectorAll("category"))
+    const rawCategories = Array.from(node.querySelectorAll("category"))
       .map((category) => normalizeText(category.textContent || ""))
       .filter(Boolean);
-    const title = childText(node, "title") || "Untitled";
+    const { title, categories, editionKind } = normalizeEdition({
+      title: childText(node, "title") || "Untitled",
+      categories: rawCategories,
+      kind: node.getElementsByTagNameNS(EDITION_NS, "edition_kind")[0]?.textContent?.trim() || "",
+    });
     const guid = childText(node, "guid") || childText(node, "link") || title;
     const published = childText(node, "pubDate");
     const description = stripHtml(childText(node, "description"));
@@ -1206,10 +1293,11 @@ function parseRss(xmlText) {
       description,
       categories,
       categoryText: categories.join(", "),
+      editionKind,
       fields,
     };
   });
-  return { channel, items };
+  return { channel, items: deduplicateArticles(items), entries: items };
 }
 
 function childText(node, tagName) {
@@ -1238,22 +1326,6 @@ function uniqueCategories(items) {
   );
 }
 
-function groupItemsBySection(items, selectedSection) {
-  const groups = new Map();
-  for (const item of items) {
-    if (selectedSection && !item.categories.includes(selectedSection)) {
-      continue;
-    }
-    const section = selectedSection || item.categories[0] || "Uncategorized";
-    if (!groups.has(section)) {
-      groups.set(section, []);
-    }
-    groups.get(section).push(item);
-  }
-  return Array.from(groups, ([name, groupedItems]) => ({ name, items: groupedItems })).sort(
-    (first, second) => first.name.localeCompare(second.name)
-  );
-}
 
 function filterItems(items, query) {
   const normalizedQuery = query.trim().toLowerCase();

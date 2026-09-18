@@ -2,9 +2,16 @@
 
 Small React Router app for inspecting the private RSS feed.
 
-The reader has four top-level views:
+The reader has five top-level views:
 
-- **Raw RSS** shows the latest RSS document as expandable sections and items.
+- **Newspaper sections** is the landing page. Daily World/US briefs come first,
+  followed by US print-edition section order. A sticky, horizontally scrollable
+  section bar and Previous/Next buttons work on mobile and with keyboard arrows.
+  Selected sections are bookmarkable. Online is a final additional collection;
+  its articles also remain in their newspaper sections with edition badges.
+- **Raw RSS** opens a readable, expandable feed inspector. **Open actual raw RSS**
+  links to the unmodified XML response from `/api/feed`. The inspector includes
+  every RSS entry, while article views collapse duplicate publisher GUIDs.
 - **Recent articles** shows the default current-issue feed in a sortable,
   locally filterable table. Open a title to read the cached plain-text article.
   **Full text** links also open cached text through the reader's same-origin
@@ -71,3 +78,22 @@ to the local Economist RSS service on `127.0.0.1:8080`. The client can also
 still use a manually entered feed URL, in which case the Vite development proxy
 uses `POST /api/feed` and never exposes the configured local `.env` value in
 the bundle.
+
+RSS edition metadata uses the `economist` namespace
+(`https://github.com/andrewfurman/economist-newspaper-rss-feed/ns/1.0`):
+`economist:edition_kind`, `economist:issue_id`, and `economist:issue_date`.
+Titles remain unchanged and `<category>` contains sections without edition labels.
+The reader also accepts legacy feeds with edition labels in categories/titles.
+
+On exe.dev, run `npm run dev -- --host 0.0.0.0 --port 8080` with
+`__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=your-vm.exe.xyz`. The VM's HTTPS
+proxy can target that port with `ssh exe.dev share port your-vm 8080`.
+
+Section-order sources, alias handling, and limits are documented in
+[Reader sections](../docs/READER_SECTIONS.md).
+
+Edition labels require positive evidence: a known issue assignment or the
+publisher's explicit print-publication note in cached article text. Missing
+membership is `unknown` (shown as **Edition unverified**), never inferred as
+Online Only. Only explicit `online_only` metadata enters the Online collection.
+Legacy Online Only category labels are treated as unverified.

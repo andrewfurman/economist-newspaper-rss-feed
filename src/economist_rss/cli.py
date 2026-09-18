@@ -22,7 +22,6 @@ from .feed import build_rss
 from .refresh import refresh_if_stale
 from .server import EconomistRssServer
 from .store import ArticleStore
-from .util import cutoff_datetime
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,7 +147,10 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.output_limit
             if args.output_limit is not None
             else config.rss_item_limit,
-            published_after=cutoff_datetime(config.article_lookback_days),
+            published_after=store.default_feed_cutoff(
+                config.article_lookback_days,
+                current_issue_only=config.current_issue_filter_enabled,
+            ),
             current_issue_only=config.current_issue_filter_enabled,
         )
 
