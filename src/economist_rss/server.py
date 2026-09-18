@@ -276,10 +276,25 @@ def _rss_response(
                 limit=requested_limit,
             )
         else:
+            # Default feed selection policy:
+            # - Include all members of the latest print issue, and
+            # - Include online articles published on/after that issue date.
+            # Do not rely on the rolling lookback window alone when current-issue
+            # state is present; the issue anchor defines the intended window.
+            # Fall back to lookback-only when current-issue state is unavailable.
             item_limit = None if category_filters else requested_limit
+            current_issue_known = bool(
+                (store.get_state("current_issue_id") or "").strip()
+                and (store.get_state("current_issue_date") or "").strip()
+            )
+            published_after = (
+                None
+                if (config.current_issue_filter_enabled and current_issue_known)
+                else cutoff_datetime(config.article_lookback_days)
+            )
             feed_items = store.feed_items(
                 limit=item_limit,
-                published_after=cutoff_datetime(config.article_lookback_days),
+                published_after=published_after,
                 current_issue_only=config.current_issue_filter_enabled,
             )
             if category_filters:
@@ -433,8 +448,18 @@ def _api_stats_response(config: AppConfig) -> dict[str, object]:
         categories = store.category_stats()
         content_statuses = store.content_status_counts()
         queued_count = store.queued_article_count()
+        # Mirror the default feed retention policy for this stat:
+        # issue-anchored window when current issue is known; otherwise lookback.
+        current_issue_known = bool(
+            (store.get_state("current_issue_id") or "").strip()
+            and (store.get_state("current_issue_date") or "").strip()
+        )
         default_feed_count = store.feed_item_count(
-            published_after=cutoff_datetime(config.article_lookback_days),
+            published_after=(
+                None
+                if (config.current_issue_filter_enabled and current_issue_known)
+                else cutoff_datetime(config.article_lookback_days)
+            ),
             current_issue_only=config.current_issue_filter_enabled,
         )
         last_refresh_at = store.get_state("last_refresh_at")

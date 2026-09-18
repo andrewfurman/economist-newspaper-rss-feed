@@ -3,6 +3,10 @@ database_path = "data/economist-rss.sqlite3"
 rss_item_limit = 500
 timeout_seconds = 20
 refresh_interval_seconds = 300
+# Discovery lookback used for source feed polling and as a fallback default-feed
+# window only when current-issue state is unavailable. When the current issue
+# is known, the default RSS feed is anchored to that issue instead of this
+# rolling window.
 article_lookback_days = 30
 min_article_delay_seconds = 75
 max_article_delay_seconds = 180
@@ -21,6 +25,10 @@ browser_storage_state = ".cache/economist-browser-state.json"
 login_url = "https://www.economist.com/api/auth/login"
 verify_url = "https://www.economist.com/culture/2026/06/19/plot-twist-newsletter-the-art-of-adolescence"
 exclude_url_patterns = []
+# Default RSS window policy:
+# - Include all members of the latest print issue, and
+# - Include online articles published on/after that issue date.
+# Set to false to disable issue anchoring and fall back to lookback-only.
 current_issue_filter_enabled = true
 weekly_edition_base_url = "https://www.economist.com/weeklyedition"
 current_issue_refresh_interval_seconds = 21600
