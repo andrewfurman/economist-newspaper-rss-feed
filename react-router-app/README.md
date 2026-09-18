@@ -2,11 +2,16 @@
 
 Small React Router app for inspecting the private RSS feed.
 
-The reader has four views and a direct link to the raw feed:
+The reader has five top-level views:
 
-- **Raw RSS** opens the actual XML response from `/api/feed`.
-- **Newspaper sections** explores articles in expandable section groups. Edition
-  labels are separate metadata and never appear as newspaper sections.
+- **Newspaper sections** is the landing page. Daily World/US briefs come first,
+  followed by US print-edition section order. A sticky, horizontally scrollable
+  section bar and Previous/Next buttons work on mobile and with keyboard arrows.
+  Selected sections are bookmarkable. Online is a final additional collection;
+  its articles also remain in their newspaper sections with edition badges.
+- **Raw RSS** opens a readable, expandable feed inspector. **Open actual raw RSS**
+  links to the unmodified XML response from `/api/feed`. The inspector includes
+  every RSS entry, while article views collapse duplicate publisher GUIDs.
 - **Recent articles** shows the default current-issue feed in a sortable,
   locally filterable table. Open a title to read the cached plain-text article.
   **Full text** links also open cached text through the reader's same-origin
@@ -83,3 +88,6 @@ The reader also accepts legacy feeds with edition labels in categories/titles.
 On exe.dev, run `npm run dev -- --host 0.0.0.0 --port 8080` with
 `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=your-vm.exe.xyz`. The VM's HTTPS
 proxy can target that port with `ssh exe.dev share port your-vm 8080`.
+
+Section-order sources, alias handling, and limits are documented in
+[Reader sections](../docs/READER_SECTIONS.md).
