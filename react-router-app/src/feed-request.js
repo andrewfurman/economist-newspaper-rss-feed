@@ -11,7 +11,7 @@ export function buildApiFeedUrl(request, origin = window.location.origin) {
   return url;
 }
 
-export function searchRequestFromParams(searchParams, defaultLimit = 200) {
+export function searchRequestFromParams(searchParams, defaultLimit = 300) {
   return {
     q: searchParams.get("q") || "",
     start_date: searchParams.get("start_date") || "",
