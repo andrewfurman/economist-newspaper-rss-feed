@@ -530,5 +530,133 @@ class ServerApiTests(unittest.TestCase):
                 _api_articles_response(config, "offset=-1")
 
 
+class ServerDefaultFeedRetentionTests(unittest.TestCase):
+    def test_default_feed_uses_issue_anchor_over_lookback_when_available(self):
+        # When the current issue is known, the default feed should be anchored
+        # to that issue window instead of the rolling lookback cutoff.
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "articles.sqlite3"
+            # Use a very small lookback window to ensure the test would fail
+            # if lookback were still applied.
+            config = AppConfig(
+                feeds=[],
+                database_path=str(database_path),
+                article_lookback_days=1,
+                current_issue_filter_enabled=True,
+            )
+            with ArticleStore(database_path) as store:
+                # Declare a current issue with known id + date and some members.
+                store.set_state("current_issue_id", "2026-06-27")
+                store.set_state("current_issue_date", "2026-06-27")
+                store.set_state("current_issue_article_count", "5")
+                # Issue member: ensure published_at is far before the tiny lookback
+                issue_member = store.upsert_current_issue_article(
+                    FeedItem(
+                        title="Issue member story",
+                        link="https://www.economist.com/leaders/2026/06/20/issue-member",
+                        guid="issue-member",
+                        published="Fri, 20 Jun 2025 12:00:00 +0000",
+                    ),
+                    issue_id="2026-06-27",
+                    issue_date="2026-06-27",
+                    issue_source="weeklyedition_page",
+                )
+                # Overwrite with older published_at to simulate metadata backfill.
+                store.upsert_feed_item(
+                    FeedItem(
+                        title="Issue member story",
+                        link="https://www.economist.com/leaders/2026/06/20/issue-member",
+                        guid="issue-member",
+                        published="Fri, 01 Jan 1999 12:00:00 +0000",
+                    )
+                )
+                # Online exclusive after the issue date.
+                online = store.upsert_feed_item(
+                    FeedItem(
+                        title="Online exclusive after issue date",
+                        link="https://www.economist.com/business/2026/06/28/online",
+                        guid="online",
+                        published="Sun, 28 Jun 2026 10:00:00 +0000",
+                    )
+                )
+                # Prior issue member should be excluded.
+                prior_issue = store.upsert_current_issue_article(
+                    FeedItem(
+                        title="Prior issue story",
+                        link="https://www.economist.com/leaders/2026/06/19/prior",
+                        guid="prior",
+                        published="Fri, 19 Jun 2026 10:00:00 +0000",
+                    ),
+                    issue_id="2026-06-20",
+                    issue_date="2026-06-20",
+                    issue_source="weeklyedition_page",
+                )
+                for stored in (issue_member, online, prior_issue):
+                    store.save_article_content(
+                        stored,
+                        content_html="<p>Full text</p>",
+                        content_text="Full text",
+                        content_source="test",
+                    )
+            with patch("economist_rss.server.refresh_if_stale") as refresh_mock:
+                rss = _rss_response(config, "")
+            root = ET.fromstring(rss)
+            titles = [item.findtext("title") for item in root.findall("./channel/item")]
+            self.assertIn("Issue member story", titles)
+            self.assertIn("Online exclusive after issue date", titles)
+            self.assertNotIn("Prior issue story", titles)
+
+    def test_default_feed_falls_back_to_lookback_when_issue_state_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "articles.sqlite3"
+            config = AppConfig(
+                feeds=[],
+                database_path=str(database_path),
+                article_lookback_days=7,
+                current_issue_filter_enabled=True,
+            )
+            with ArticleStore(database_path) as store:
+                from datetime import datetime, timedelta, timezone
+                from email.utils import format_datetime
+                now = datetime.now(timezone.utc)
+                recent = store.upsert_feed_item(
+                    FeedItem(
+                        title="Recent story",
+                        link="https://www.economist.com/business/2026/06/23/recent",
+                        guid="recent",
+                        published=format_datetime(now - timedelta(days=2)),
+                    )
+                )
+                old = store.upsert_feed_item(
+                    FeedItem(
+                        title="Old story",
+                        link="https://www.economist.com/business/2026/05/01/old",
+                        guid="old",
+                        published=format_datetime(now - timedelta(days=40)),
+                    )
+                )
+                for stored in (recent, old):
+                    store.save_article_content(
+                        stored,
+                        content_html="<p>Full text</p>",
+                        content_text="Full text",
+                        content_source="test",
+                    )
+            with patch("economist_rss.server.refresh_if_stale") as refresh_mock:
+                rss = _rss_response(config, "")
+            root = ET.fromstring(rss)
+            titles = [item.findtext("title") for item in root.findall("./channel/item")]
+            self.assertIn("Recent story", titles)
+            self.assertNotIn("Old story", titles)
+            # Older content remains available via search
+            with patch("economist_rss.server.refresh_if_stale") as refresh_mock:
+                search_rss = _rss_response(config, "q=Old")
+            search_root = ET.fromstring(search_rss)
+            search_titles = [
+                item.findtext("title") for item in search_root.findall("./channel/item")
+            ]
+            self.assertIn("Old story", search_titles)
+
+
 if __name__ == "__main__":
     unittest.main()
