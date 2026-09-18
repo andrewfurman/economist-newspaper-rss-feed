@@ -45,7 +45,7 @@ import "./styles.css";
 
 const FeedContext = createContext(null);
 const DatabaseContext = createContext(null);
-const DEFAULT_LIMIT = 200;
+const DEFAULT_LIMIT = 300;
 const DEFAULT_REQUEST = {
   feedUrl: "",
   q: "",
