@@ -41,6 +41,7 @@ import {
   searchParamsFromRequest,
   searchRequestFromParams,
 } from "./feed-request.js";
+import { editionLabelFromCategories } from "./edition.js";
 import "./styles.css";
 
 const FeedContext = createContext(null);
@@ -1235,16 +1236,6 @@ function uniqueCategories(items) {
   return Array.from(new Set(items.flatMap((item) => item.categories))).sort((a, b) =>
     a.localeCompare(b)
   );
-}
-
-function editionLabelFromCategories(categories) {
-  if (categories.includes("Print Edition")) {
-    return "Print Edition";
-  }
-  if (categories.includes("Online Only")) {
-    return "Online Only";
-  }
-  return "";
 }
 
 function groupItemsBySection(items, selectedSection) {
