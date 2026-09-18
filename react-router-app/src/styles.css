@@ -1153,3 +1153,9 @@ dd {
 }
 
 .online-collection-note { color: #5d646b; font-size: 0.85rem; padding: 0 14px; }
+
+.edition-badge.unknown {
+  background: #f4f2ed;
+  border: 1px solid #d8d0bf;
+  color: #6b6049;
+}

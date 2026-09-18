@@ -33,3 +33,10 @@ test('same-GUID alias prefers a specific section regardless of arrival order', (
   }
   assert.equal(deduplicateArticles([canonical, item('different-guid', 'By Invitation', canonical.title)]).length, 2);
 });
+
+test('unverified edition membership never enters the Online collection', () => {
+  assert.deepEqual(groupItemsBySection([
+    item('unverified', 'Leaders', 'A leader', 'unknown'),
+    item('print', 'The World This Week', 'Politics', 'print_edition'),
+  ]).map(g => g.name), ['The World This Week', 'Leaders']);
+});

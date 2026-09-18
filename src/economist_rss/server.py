@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from .article_links import article_link_key, public_base_url, unwrap_article_url
 from .config import AppConfig
-from .feed import FeedItem, build_rss, categories_for_item, category_for_slug
+from .feed import FeedItem, build_rss, categories_for_item, category_for_slug, classify_edition
 from .refresh import refresh_if_stale
 from .store import ArticleStore, StoredArticle
 
@@ -607,7 +607,7 @@ def _article_api_item(
         "match_source": match_source,
         "issue_id": article.issue_id,
         "issue_date": article.issue_date,
-        "edition_kind": ("print_edition" if (article.issue_id or "").strip() else "online_only"),
+        "edition_kind": classify_edition(article.issue_id, article.content_text),
         "full_text_available": full_text_available,
         "content_status": article.content_status or "not_fetched",
         "fetch_requested": bool(article.fetch_requested_at),

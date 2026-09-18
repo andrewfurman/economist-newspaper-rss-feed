@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from html import unescape
+import re
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
@@ -31,10 +32,26 @@ class FeedItem:
     source: str | None = None
     categories: list[str] = field(default_factory=list)
     # Optional edition metadata populated when reading from the local catalog
-    # edition_kind: "print_edition" | "online_only"
+    # edition_kind: "print_edition" | "online_only" | "unknown"
     edition_kind: str | None = None
     issue_id: str | None = None
     issue_date: str | None = None
+
+
+def classify_edition(issue_id: str | None, content_text: str | None = None) -> str:
+    """Require positive evidence; failed discovery never proves online exclusivity."""
+    if (issue_id or "").strip():
+        return "print_edition"
+    # Cached publisher footers can confirm print publication independently of
+    # weekly-edition discovery. They do not establish a particular issue date.
+    if re.search(
+        r"(?im)^[ \t]*This article appeared in "
+        r"(?:the [^\n]{1,120} section of )?the print edition"
+        r"(?: under the headline\b|[. \t]*$)",
+        content_text or "",
+    ):
+        return "print_edition"
+    return "unknown"
 
 
 def parse_feed(xml_text: str, source_name: str) -> list[FeedItem]:
@@ -88,7 +105,9 @@ def build_rss(
             ET.SubElement(item, "description").text = item_description
         for category in categories_for_rss_item(feed_item):
             ET.SubElement(item, "category").text = category
-        kind = feed_item.edition_kind or ("print_edition" if feed_item.issue_id else None)
+        kind = feed_item.edition_kind or classify_edition(
+            feed_item.issue_id, feed_item.content_text
+        )
         for name, value in (
             ("edition_kind", kind),
             ("issue_id", feed_item.issue_id),

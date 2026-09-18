@@ -9,7 +9,7 @@ import re
 import sqlite3
 from typing import Iterable
 
-from .feed import FeedItem, categories_for_item
+from .feed import FeedItem, categories_for_item, classify_edition
 from .util import canonical_url, cutoff_datetime, normalized_datetime, now_iso, parse_datetime, stable_id
 
 SEARCH_INDEX_VERSION = "1"
@@ -555,7 +555,7 @@ class ArticleStore:
                 content_text=row["content_text"],
                 source=row["source"],
                 categories=_decode_categories(row["categories"]),
-                edition_kind=("print_edition" if (row["issue_id"] or "").strip() else "online_only"),
+                edition_kind=classify_edition(row["issue_id"], row["content_text"]),
                 issue_id=row["issue_id"],
                 issue_date=row["issue_date"],
             )
@@ -898,7 +898,7 @@ def _article_to_feed_item(article: StoredArticle) -> FeedItem:
         content_text=article.content_text,
         source=article.source,
         categories=article.categories,
-        edition_kind=("print_edition" if (article.issue_id or "").strip() else "online_only"),
+        edition_kind=classify_edition(article.issue_id, article.content_text),
         issue_id=article.issue_id,
         issue_date=article.issue_date,
     )

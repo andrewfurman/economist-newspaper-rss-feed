@@ -1230,8 +1230,11 @@ function EditionBadge({ editionKind }) {
   if (!label) {
     return null;
   }
-  const kind = label === "Print Edition" ? "print" : "online";
-  return <span className={`edition-badge ${kind}`}>{label}</span>;
+  const kind = editionKind === "print_edition" ? "print" : editionKind === "online_only" ? "online" : "unknown";
+  return <span className={`edition-badge ${kind}`}
+    title={editionKind === "unknown" ? "Print status has not been verified for this article." : undefined}>
+    {label}
+  </span>;
 }
 
 function CategoryList({ categories }) {

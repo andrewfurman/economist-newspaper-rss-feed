@@ -3,7 +3,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from economist_rss.feed import EDITION_NS, FeedItem, build_rss, parse_feed
+from economist_rss.feed import EDITION_NS, FeedItem, build_rss, parse_feed, classify_edition
 from economist_rss.server import _article_api_item
 from economist_rss.store import ArticleStore, StoredArticle
 
@@ -57,6 +57,38 @@ class EditionLabelTests(unittest.TestCase):
         self.assertEqual(title.text, "Online-only analysis")
         self.assertEqual(categories, ["Asia"])
         self.assertEqual(root.findtext(f"./channel/item/{{{EDITION_NS}}}edition_kind"), "online_only")
+
+    def test_missing_issue_membership_requires_positive_print_evidence(self):
+        self.assertEqual(classify_edition(None), "unknown")
+        self.assertEqual(classify_edition("  ", "An article about the print edition."), "unknown")
+        self.assertEqual(classify_edition(None, "This article did not appear in the print edition."), "unknown")
+        self.assertEqual(classify_edition("2026-09-19"), "print_edition")
+        self.assertEqual(classify_edition(None, "Body.\n\nThis article appeared in the The world this week section of the print edition under the headline “Politics”"), "print_edition")
+        self.assertEqual(classify_edition(None, "This article appeared in the print edition."), "print_edition")
+
+    def test_rss_api_and_search_agree_when_issue_discovery_failed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with ArticleStore(Path(directory) / "articles.sqlite3") as store:
+                store.set_state("current_issue_error", "HTTP 403")
+                store.set_state("current_issue_article_count", "0")
+                for guid, text in (
+                    ("politics", "Cached text.\n\nThis article appeared in the The world this week section of the print edition under the headline “Politics”"),
+                    ("unverified", "Cached text without edition metadata."),
+                ):
+                    article = store.upsert_feed_item(FeedItem(
+                        title=guid, link=f"https://www.economist.com/the-world-this-week/2026/09/17/{guid}", guid=guid,
+                    ))
+                    store.save_article_content(article, content_html="<p>Cached text</p>", content_text=text, content_source="test")
+                expected = {"politics": "print_edition", "unverified": "unknown"}
+                for items in (store.feed_items(), store.search_items()):
+                    self.assertEqual({i.guid: i.edition_kind for i in items}, expected)
+                    root = ET.fromstring(build_rss(items))
+                    self.assertEqual({i.findtext("guid"): i.findtext(f"{{{EDITION_NS}}}edition_kind") for i in root.findall("./channel/item")}, expected)
+                for guid, kind in expected.items():
+                    article = store.get_article(guid)
+                    item = _article_api_item(article, match_source="local_full_text")
+                    self.assertEqual(item["edition_kind"], kind)
+                    self.assertIsNone(item["issue_id"])
 
     def test_api_item_includes_edition_fields(self):
         with tempfile.TemporaryDirectory() as directory:

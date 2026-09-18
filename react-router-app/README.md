@@ -91,3 +91,9 @@ proxy can target that port with `ssh exe.dev share port your-vm 8080`.
 
 Section-order sources, alias handling, and limits are documented in
 [Reader sections](../docs/READER_SECTIONS.md).
+
+Edition labels require positive evidence: a known issue assignment or the
+publisher's explicit print-publication note in cached article text. Missing
+membership is `unknown` (shown as **Edition unverified**), never inferred as
+Online Only. Only explicit `online_only` metadata enters the Online collection.
+Legacy Online Only category labels are treated as unverified.

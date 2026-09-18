@@ -15,9 +15,11 @@ the known newspaper sections; Online is always last.
 
 Online is an additional collection of items explicitly labelled `online_only`.
 Those stories remain in their newspaper sections, with a visible Online Only
-badge on the collapsed card. These labels use existing feed metadata; the
-unresolved issue-discovery limitation documented in the September review still
-applies. Display order is independent of print-membership classification.
+badge on the collapsed card. Print Edition requires positive evidence from an issue assignment or the
+publisher's explicit print-publication footer in cached text. Missing evidence
+is **Edition unverified**, and never enters the Online collection. The legacy
+Online Only category is not trusted because older servers emitted it whenever
+issue discovery was missing. Display order is independent of print membership.
 
 The mobile section bar scrolls horizontally and remains sticky while reading.
 Controls have at least 44px touch targets; Previous/Next walks through sections.
@@ -56,3 +58,20 @@ entries, section/edition information, and original RSS fields. The actual XML
 link opens `/api/feed` in a separate tab. The XML is untouched: all entries,
 including cached aliases, remain inspectable. This distinguishes RSS entry
 counts from the unique-article counts in the newspaper and recent-article views.
+
+## Edition-label correction, September 18
+
+Production had no discovered members for the current issue, causing the old
+`issue_id ? print_edition : online_only` rule to mislabel print articles. An
+ordinary browser check with the saved session also encountered a Cloudflare
+challenge on the September 19 edition page; no automated challenge was solved
+or retried.
+
+The local cache nevertheless contains publisher footers confirming print
+publication. The shared classifier now uses these existing notes for RSS,
+search, and article API output without additional publisher requests. It does
+not infer an issue date from a footer that gives no date. September 17 Politics,
+Business, and several Leaders articles now have verified print badges in the
+preview. Remaining articles display Edition unverified pending positive evidence.
+Full issue discovery and retention completeness remain separate unresolved work
+under #50. No production database records were modified for this correction.

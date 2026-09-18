@@ -25,6 +25,12 @@ classified by the existing code as online-only; this is not evidence that none
 belong to the print edition. The last issue with explicit cached membership
 was August 22 (74 articles).
 
+A subsequent classification fix uses explicit publisher print-publication notes
+already present in cached article text, as well as known issue IDs. Missing
+evidence now yields `unknown`, displayed as Edition unverified, rather than
+Online Only. This restores verified print labels without inventing issue dates;
+it does not establish a complete weekly contents list.
+
 Do not close #50 yet. First restore successful authorized weekly-edition
 metadata discovery, confirm the actual latest edition and its members, and
 verify that default output contains every cached member plus subsequent online
