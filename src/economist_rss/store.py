@@ -10,7 +10,7 @@ import sqlite3
 from typing import Iterable
 
 from .feed import FeedItem, categories_for_item
-from .util import canonical_url, normalized_datetime, now_iso, parse_datetime, stable_id
+from .util import canonical_url, cutoff_datetime, normalized_datetime, now_iso, parse_datetime, stable_id
 
 SEARCH_INDEX_VERSION = "1"
 CATEGORY_BACKFILL_VERSION = "1"
@@ -504,6 +504,14 @@ class ArticleStore:
             (status, error[:1000], timestamp, timestamp, article.canonical_url),
         )
         self.conn.commit()
+
+    def default_feed_cutoff(
+        self, lookback_days: int | None, *, current_issue_only: bool
+    ) -> datetime | None:
+        """Share the validated issue window across HTTP, statistics, and CLI builds."""
+        if current_issue_only and _current_issue_filter(self) is not None:
+            return None
+        return cutoff_datetime(lookback_days)
 
     def feed_items(
         self,

@@ -15,7 +15,6 @@ from .config import AppConfig
 from .feed import FeedItem, build_rss, categories_for_item, category_for_slug
 from .refresh import refresh_if_stale
 from .store import ArticleStore, StoredArticle
-from .util import cutoff_datetime
 
 CATEGORY_FEED_PREFIX = "/rss/category/"
 CATEGORY_FEED_SUFFIX = ".xml"
@@ -283,14 +282,9 @@ def _rss_response(
             # state is present; the issue anchor defines the intended window.
             # Fall back to lookback-only when current-issue state is unavailable.
             item_limit = None if category_filters else requested_limit
-            current_issue_known = bool(
-                (store.get_state("current_issue_id") or "").strip()
-                and (store.get_state("current_issue_date") or "").strip()
-            )
-            published_after = (
-                None
-                if (config.current_issue_filter_enabled and current_issue_known)
-                else cutoff_datetime(config.article_lookback_days)
+            published_after = store.default_feed_cutoff(
+                config.article_lookback_days,
+                current_issue_only=config.current_issue_filter_enabled,
             )
             feed_items = store.feed_items(
                 limit=item_limit,
@@ -450,15 +444,10 @@ def _api_stats_response(config: AppConfig) -> dict[str, object]:
         queued_count = store.queued_article_count()
         # Mirror the default feed retention policy for this stat:
         # issue-anchored window when current issue is known; otherwise lookback.
-        current_issue_known = bool(
-            (store.get_state("current_issue_id") or "").strip()
-            and (store.get_state("current_issue_date") or "").strip()
-        )
         default_feed_count = store.feed_item_count(
-            published_after=(
-                None
-                if (config.current_issue_filter_enabled and current_issue_known)
-                else cutoff_datetime(config.article_lookback_days)
+            published_after=store.default_feed_cutoff(
+                config.article_lookback_days,
+                current_issue_only=config.current_issue_filter_enabled,
             ),
             current_issue_only=config.current_issue_filter_enabled,
         )
