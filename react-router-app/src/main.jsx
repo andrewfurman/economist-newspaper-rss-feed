@@ -41,6 +41,7 @@ import {
   searchParamsFromRequest,
   searchRequestFromParams,
 } from "./feed-request.js";
+import { editionLabelFromCategories } from "./edition.js";
 import "./styles.css";
 
 const FeedContext = createContext(null);
@@ -905,6 +906,7 @@ function StoryTable({ emptyMessage, items, loading, returnTo }) {
                     <Link to={`/stories/${item.id}`} state={{ from: returnTo }}>
                       {item.title}
                     </Link>
+                    <EditionBadge categories={item.categories} />
                     {item.link ? (
                       <a
                         className="source-link"
@@ -1079,7 +1081,10 @@ function StoryDetailPage() {
       </Link>
       <header className="detail-header">
         <div>
-          <p className="eyebrow">{item.categoryText || "Uncategorized"}</p>
+          <p className="eyebrow">
+            {item.categoryText || "Uncategorized"}
+          </p>
+          <EditionBadge categories={item.categories} />
           <h2>{item.title}</h2>
         </div>
         {item.link ? (
@@ -1138,6 +1143,15 @@ function StoryDetailPage() {
       </section>
     </section>
   );
+}
+
+function EditionBadge({ categories }) {
+  const label = editionLabelFromCategories(categories);
+  if (!label) {
+    return null;
+  }
+  const kind = label === "Print Edition" ? "print" : "online";
+  return <span className={`edition-badge ${kind}`}>{label}</span>;
 }
 
 function CategoryList({ categories }) {

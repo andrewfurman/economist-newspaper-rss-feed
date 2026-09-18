@@ -709,6 +709,30 @@ tbody tr:hover {
   padding: 3px 6px;
 }
 
+.edition-badge {
+  align-self: start;
+  border-radius: 4px;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 6px;
+  letter-spacing: 0.02em;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.edition-badge.print {
+  background: #efe7e8;
+  border: 1px solid #d3a3a6;
+  color: #8e2329;
+}
+
+.edition-badge.online {
+  background: #eef1f3;
+  border: 1px solid #c8d0d6;
+  color: #3a556b;
+}
+
 .muted {
   color: #747a80;
   font-size: 0.78rem;
