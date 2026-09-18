@@ -41,7 +41,7 @@ import {
   searchParamsFromRequest,
   searchRequestFromParams,
 } from "./feed-request.js";
-import { editionLabelFromCategories } from "./edition.js";
+import { EDITION_NS, editionLabel, normalizeEdition } from "./edition.js";
 import "./styles.css";
 
 const FeedContext = createContext(null);
@@ -65,6 +65,7 @@ const router = createBrowserRouter(
       children: [
         { index: true, element: <Navigate to="/recent" replace /> },
         { path: "raw", element: <RawFeedPage /> },
+        { path: "sections", element: <SectionsPage /> },
         { path: "recent", element: <RecentArticlesPage /> },
         { path: "search", element: <CatalogSearchPage /> },
         { path: "stats", element: <DatabaseStatsPage /> },
@@ -222,14 +223,18 @@ function AppShell() {
           <h1>The Economist</h1>
         </div>
         <nav className="tabs" aria-label="Reader views">
-          <NavLink to="/raw">
-            <Braces size={17} />
-            Raw RSS
-          </NavLink>
           <NavLink to="/recent">
             <FileText size={17} />
             Recent articles
           </NavLink>
+          <NavLink to="/sections">
+            <Braces size={17} />
+            Newspaper sections
+          </NavLink>
+          <a href={buildApiFeedUrl({ limit: DEFAULT_LIMIT })}>
+            <FileText size={17} />
+            Raw RSS
+          </a>
           <NavLink to="/search">
             <Search size={17} />
             Search
@@ -248,6 +253,13 @@ function AppShell() {
 }
 
 function RawFeedPage() {
+  React.useEffect(() => {
+    window.location.replace(buildApiFeedUrl({ limit: DEFAULT_LIMIT }));
+  }, []);
+  return <a href={buildApiFeedUrl({ limit: DEFAULT_LIMIT })}>Open raw RSS XML</a>;
+}
+
+function SectionsPage() {
   const { channel, error, items, loadFeed, loading } = useFeed();
   const [request, setRequest] = useState({ limit: DEFAULT_LIMIT });
   const [section, setSection] = useState("");
@@ -266,7 +278,7 @@ function RawFeedPage() {
     : items.length;
   return (
     <section className="view-layout">
-      <ViewHeader eyebrow="RSS document" title="Raw RSS feed" />
+      <ViewHeader eyebrow="Explore the newspaper" title="Newspaper sections" />
       <FeedRequestToolbar
         request={request}
         setRequest={setRequest}
@@ -287,11 +299,11 @@ function RawFeedPage() {
         </label>
         <span className="result-count">
           {visibleItemCount.toLocaleString()}
-          {section ? ` of ${items.length.toLocaleString()}` : ""} RSS items
+          {section ? ` of ${items.length.toLocaleString()}` : ""} articles
         </span>
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
-      <FormattedRssViewer
+      <SectionsExplorer
         channel={channel}
         items={items}
         loading={loading}
@@ -301,7 +313,7 @@ function RawFeedPage() {
   );
 }
 
-function FormattedRssViewer({ channel, items, loading, section }) {
+function SectionsExplorer({ channel, items, loading, section }) {
   const groups = useMemo(() => groupItemsBySection(items, section), [items, section]);
   const [expandedSections, setExpandedSections] = useState(new Set());
 
@@ -324,13 +336,13 @@ function FormattedRssViewer({ channel, items, loading, section }) {
   if (!items.length) {
     return (
       <div className="empty-state">
-        {loading ? "Loading formatted RSS..." : "The RSS feed has no items."}
+        {loading ? "Loading sections..." : "The RSS feed has no items."}
       </div>
     );
   }
 
   return (
-    <section className="formatted-rss" aria-label="Formatted RSS">
+    <section className="formatted-rss" aria-label="Newspaper sections">
       <header className="rss-channel-header">
         <div>
           <strong>{channel?.title || "RSS feed"}</strong>
@@ -377,14 +389,6 @@ function FormattedRssViewer({ channel, items, loading, section }) {
                     ) : null}
                     <CategoryList categories={item.categories} />
                     {item.description ? <p>{item.description}</p> : null}
-                    <dl className="rss-field-list">
-                      {item.fields.map((field) => (
-                        <div key={`${field.name}-${field.index}`}>
-                          <dt>{field.name}</dt>
-                          <dd>{field.value || "None"}</dd>
-                        </div>
-                      ))}
-                    </dl>
                   </div>
                 </details>
               ))}
@@ -906,7 +910,7 @@ function StoryTable({ emptyMessage, items, loading, returnTo }) {
                     <Link to={`/stories/${item.id}`} state={{ from: returnTo }}>
                       {item.title}
                     </Link>
-                    <EditionBadge categories={item.categories} />
+                    <EditionBadge editionKind={item.editionKind} />
                     {item.link ? (
                       <a
                         className="source-link"
@@ -1084,7 +1088,7 @@ function StoryDetailPage() {
           <p className="eyebrow">
             {item.categoryText || "Uncategorized"}
           </p>
-          <EditionBadge categories={item.categories} />
+          <EditionBadge editionKind={item.editionKind} />
           <h2>{item.title}</h2>
         </div>
         {item.link ? (
@@ -1145,8 +1149,8 @@ function StoryDetailPage() {
   );
 }
 
-function EditionBadge({ categories }) {
-  const label = editionLabelFromCategories(categories);
+function EditionBadge({ editionKind }) {
+  const label = editionLabel(editionKind);
   if (!label) {
     return null;
   }
@@ -1188,10 +1192,14 @@ function parseRss(xmlText) {
       name: child.tagName,
       value: normalizeText(child.textContent || ""),
     }));
-    const categories = Array.from(node.querySelectorAll("category"))
+    const rawCategories = Array.from(node.querySelectorAll("category"))
       .map((category) => normalizeText(category.textContent || ""))
       .filter(Boolean);
-    const title = childText(node, "title") || "Untitled";
+    const { title, categories, editionKind } = normalizeEdition({
+      title: childText(node, "title") || "Untitled",
+      categories: rawCategories,
+      kind: node.getElementsByTagNameNS(EDITION_NS, "edition_kind")[0]?.textContent?.trim() || "",
+    });
     const guid = childText(node, "guid") || childText(node, "link") || title;
     const published = childText(node, "pubDate");
     const description = stripHtml(childText(node, "description"));
@@ -1206,6 +1214,7 @@ function parseRss(xmlText) {
       description,
       categories,
       categoryText: categories.join(", "),
+      editionKind,
       fields,
     };
   });

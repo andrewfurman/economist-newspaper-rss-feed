@@ -12,9 +12,11 @@ from .article_links import article_text_url
 
 CONTENT_NS = "http://purl.org/rss/1.0/modules/content/"
 ATOM_NS = "http://www.w3.org/2005/Atom"
+EDITION_NS = "https://github.com/andrewfurman/economist-newspaper-rss-feed/ns/1.0"
 DESCRIPTION_PREVIEW_CHARS = 320
 
 ET.register_namespace("content", CONTENT_NS)
+ET.register_namespace("economist", EDITION_NS)
 
 
 @dataclass
@@ -70,7 +72,7 @@ def build_rss(
 
     for feed_item in items:
         item = ET.SubElement(channel, "item")
-        ET.SubElement(item, "title").text = _title_with_edition_suffix(feed_item)
+        ET.SubElement(item, "title").text = feed_item.title
         if not _omits_item_link(feed_item):
             ET.SubElement(item, "link").text = article_text_url(
                 feed_item.link,
@@ -86,6 +88,14 @@ def build_rss(
             ET.SubElement(item, "description").text = item_description
         for category in categories_for_rss_item(feed_item):
             ET.SubElement(item, "category").text = category
+        kind = feed_item.edition_kind or ("print_edition" if feed_item.issue_id else None)
+        for name, value in (
+            ("edition_kind", kind),
+            ("issue_id", feed_item.issue_id),
+            ("issue_date", feed_item.issue_date),
+        ):
+            if value:
+                ET.SubElement(item, f"{{{EDITION_NS}}}{name}").text = value
 
     xml_body = ET.tostring(rss, encoding="unicode")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body + "\n"
@@ -160,6 +170,9 @@ def _rss_item(item: ET.Element, source_name: str) -> FeedItem:
         content_text=None,
         source=source_name,
         categories=categories,
+        edition_kind=_child_text_ns(item, "edition_kind", EDITION_NS),
+        issue_id=_child_text_ns(item, "issue_id", EDITION_NS),
+        issue_date=_child_text_ns(item, "issue_date", EDITION_NS),
     )
 
 
@@ -278,34 +291,11 @@ def categories_for_item(item: FeedItem) -> list[str]:
     return _unique_nonempty(categories)
 
 def categories_for_rss_item(item: FeedItem) -> list[str]:
-    """
-    Augment base categories with an edition label for RSS output only.
-    We avoid persisting edition labels into stored categories, since
-    issue membership can be discovered later.
-    """
-    categories = categories_for_item(item)
-    label = _edition_label_for_item(item)
-    if label:
-        categories.append(label)
-    return _unique_nonempty(categories)
-
-def _edition_label_for_item(item: FeedItem) -> str | None:
-    kind = (item.edition_kind or "").strip().casefold()
-    # Prefer explicit edition_kind when present
-    if kind == "print_edition":
-        return "Print Edition"
-    if kind == "online_only":
-        return "Online Only"
-    # Fallback: infer print edition from explicit issue_id when edition_kind is absent
-    if (item.issue_id or "").strip():
-        return "Print Edition"
-    return None
-
-def _title_with_edition_suffix(item: FeedItem) -> str:
-    suffix = _edition_label_for_item(item)
-    if not suffix:
-        return item.title
-    return f"{item.title} [{suffix}]"
+    """Edition metadata belongs in its own namespace, never in sections."""
+    return [
+        category for category in categories_for_item(item)
+        if category.casefold() not in {"print edition", "online only"}
+    ]
 
 
 def category_for_slug(slug: str) -> str:
