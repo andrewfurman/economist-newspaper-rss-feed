@@ -323,7 +323,12 @@ class ServerApiTests(unittest.TestCase):
                 store.set_state("current_issue_article_count", "74")
 
             response = _api_stats_response(
-                AppConfig(feeds=[], database_path=str(database_path))
+                AppConfig(
+                    feeds=[], database_path=str(database_path),
+                    # This catalog-summary fixture must not age out with the clock.
+                    # Date-window behavior is covered by retention-specific tests.
+                    article_lookback_days=None,
+                )
             )
 
             self.assertEqual(response["articles"]["total"], 2)
