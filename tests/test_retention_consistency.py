@@ -49,3 +49,50 @@ class RetentionConsistencyTests(unittest.TestCase):
                     self.assertEqual({node.text for node in ET.fromstring(xml).findall("./channel/item/guid")}, expected)
                 stats = _api_stats_response(config)
                 self.assertEqual(stats["refresh"]["default_feed_article_count"], len(expected))
+
+    def test_failed_issue_discovery_keeps_thursday_edition_plus_new_dispatches(self):
+        """#57: a Saturday issue date must not leave just two newer dispatches."""
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "feed.xml"
+            config = AppConfig(
+                feeds=[FeedConfig(name="test", url="https://example.test/rss")],
+                database_path=str(Path(directory) / "articles.sqlite3"),
+                output_path=str(output), article_lookback_days=1,
+            )
+            with ArticleStore(config.database_path) as store:
+                for key, value in {
+                    "current_issue_id": "2026-09-19",
+                    "current_issue_date": "2026-09-19",
+                    "current_issue_article_count": "0",
+                    "current_issue_source": "weeklyedition_calendar_fallback",
+                    "current_issue_error": "HTTP 403 while fetching weekly edition",
+                }.items():
+                    store.set_state(key, value)
+                for guid, published, section in (
+                    ("politics", "Thu, 17 Sep 2026 12:45:00 +0000", "The World This Week"),
+                    ("leader", "Thu, 17 Sep 2026 12:45:00 +0000", "Leaders"),
+                    ("letters", "Thu, 17 Sep 2026 12:45:00 +0000", "Letters"),
+                    ("world-brief", "Sat, 19 Sep 2026 12:00:00 +0000", "The World in Brief"),
+                    ("podcast", "Sun, 20 Sep 2026 12:00:00 +0000", "Podcasts"),
+                    ("older", "Thu, 10 Sep 2026 12:00:00 +0000", "Leaders"),
+                ):
+                    article = store.upsert_feed_item(FeedItem(
+                        title=guid, link=f"https://example.test/{guid}", guid=guid,
+                        published=published, categories=[section],
+                    ))
+                    store.save_article_content(article, content_html="<p>Cached text</p>",
+                                               content_text="Cached text", content_source="test")
+            with patch("economist_rss.cli.load_config", return_value=config):
+                self.assertEqual(main(["build", "--no-refresh"]), 0)
+            with patch("economist_rss.server.refresh_if_stale"):
+                served = _rss_response(config, "")
+                leaders = _rss_response(config, "", path_category="Leaders")
+                archive = _rss_response(config, "q=older")
+            expected = {"politics", "leader", "letters", "world-brief", "podcast"}
+            def guids(xml):
+                return {node.text for node in ET.fromstring(xml).findall("./channel/item/guid")}
+            self.assertEqual(guids(served), expected)
+            self.assertEqual(guids(output.read_text()), expected)
+            self.assertEqual(guids(leaders), {"leader"})
+            self.assertEqual(guids(archive), {"older"})
+            self.assertEqual(_api_stats_response(config)["refresh"]["default_feed_article_count"], len(expected))
