@@ -97,6 +97,13 @@ function rssProxyPlugin(env) {
             return;
           }
 
+          if (request.method === "GET") {
+            response.statusCode = 200;
+            response.setHeader("Content-Type", "application/rss+xml; charset=utf-8");
+            response.setHeader("Cache-Control", "no-store");
+            response.end(xml);
+            return;
+          }
           sendJson(response, 200, {
             xml,
             fetchedAt: new Date().toISOString(),

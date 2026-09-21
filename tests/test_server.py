@@ -323,7 +323,12 @@ class ServerApiTests(unittest.TestCase):
                 store.set_state("current_issue_article_count", "74")
 
             response = _api_stats_response(
-                AppConfig(feeds=[], database_path=str(database_path))
+                AppConfig(
+                    feeds=[], database_path=str(database_path),
+                    # This catalog-summary fixture must not age out with the clock.
+                    # Date-window behavior is covered by retention-specific tests.
+                    article_lookback_days=None,
+                )
             )
 
             self.assertEqual(response["articles"]["total"], 2)
@@ -601,10 +606,8 @@ class ServerDefaultFeedRetentionTests(unittest.TestCase):
             with patch("economist_rss.server.refresh_if_stale") as refresh_mock:
                 rss = _rss_response(config, "")
             root = ET.fromstring(rss)
-            titles = [item.findtext("title") for item in root.findall("./channel/item")]
-            self.assertIn("Issue member story", titles)
-            self.assertIn("Online exclusive after issue date", titles)
-            self.assertNotIn("Prior issue story", titles)
+            guids = [item.findtext("guid") for item in root.findall("./channel/item")]
+            self.assertEqual(set(guids), {"issue-member", "online"})
 
     def test_default_feed_falls_back_to_lookback_when_issue_state_missing(self):
         with tempfile.TemporaryDirectory() as directory:
