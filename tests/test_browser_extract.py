@@ -62,7 +62,7 @@ class RenderedBrowserArticleTests(unittest.TestCase):
                 "https://www.economist.com/finance-and-economics/2026/06/18/"
                 "a-standard-article"
             ),
-            700,
+            2000,
         )
         self.assertEqual(
             minimum_word_count_for_url(

@@ -6,6 +6,7 @@ from email.utils import format_datetime
 from html import unescape
 import re
 import xml.etree.ElementTree as ET
+import re
 from urllib.parse import urlparse
 
 from .article_links import article_text_url
@@ -117,6 +118,7 @@ def build_rss(
                 ET.SubElement(item, f"{{{EDITION_NS}}}{name}").text = value
 
     xml_body = ET.tostring(rss, encoding="unicode")
+    xml_body = _emit_cdata_for_article_links(xml_body)
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_body + "\n"
 
 
@@ -258,6 +260,23 @@ def _child_text_by_local_name(parent: ET.Element, local_name: str) -> str | None
 
 def _local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def _emit_cdata_for_article_links(xml_text: str) -> str:
+    """
+    Replace <item><link> values that point to /article.txt?... with CDATA,
+    unescaping any &amp; back to & so non-XML-aware fetchers work.
+    """
+    def _replacement(match: re.Match[str]) -> str:
+        prefix, content, suffix = match.group(1), match.group(2), match.group(3)
+        # ElementTree escapes '&' to '&amp;' in text; restore for CDATA payload.
+        restored = unescape(content)
+        return f"{prefix}<![CDATA[{restored}]]>{suffix}"
+
+    # Only transform <link> elements that appear inside an <item> block and
+    # that contain a path ending with /article.txt?...
+    pattern = re.compile(r"(<item>.*?<link>)([^<]*/article\.txt\?[^<]*?)(</link>)", re.DOTALL)
+    return pattern.sub(_replacement, xml_text)
 
 
 SECTION_CATEGORIES = {

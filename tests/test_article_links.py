@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 import xml.etree.ElementTree as ET
+import re
 
 from economist_rss.article_links import public_base_url, unwrap_article_url
 from economist_rss.feed import FeedItem, build_rss
@@ -69,6 +70,27 @@ class ArticleLinksTests(unittest.TestCase):
                 public_base_url({"Host": "[::1]:8080", "X-Forwarded-Host": "ignored"}),
                 "http://[::1]:8080",
             )
+
+    def test_rss_emits_cdata_link_with_literal_amp_key(self):
+        item = FeedItem(
+            title="Story",
+            link="https://www.economist.com/business/2026/09/14/story",
+            guid="stable-story",
+        )
+        xml = build_rss([item], article_signing_key="test-feed-secret")
+        # Raw XML should include CDATA link text with a literal &key=
+        self.assertIn("<link><![CDATA[", xml)
+        match = re.search(r"<item>.*?<link>(.*?)</link>", xml, re.DOTALL)
+        self.assertIsNotNone(match, "link element not found in raw XML")
+        assert match is not None
+        raw_link_fragment = match.group(1)
+        self.assertIn("&key=", raw_link_fragment)
+        # Parsing the XML should yield a link whose query contains key=
+        link_text = ET.fromstring(xml).findtext("./channel/item/link")
+        self.assertTrue(link_text)
+        assert link_text is not None
+        self.assertEqual(urlparse(link_text).path, "/article.txt")
+        self.assertTrue(parse_qs(urlparse(link_text).query).get("key"))
 
 
 if __name__ == "__main__":

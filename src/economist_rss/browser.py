@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from .config import AppConfig
-from .extract import ArticleContent, extract_article, is_cloudflare_challenge
+from .extract import ArticleContent, extract_article, is_cloudflare_challenge, looks_like_paywall_excerpt
 
 
 @dataclass(frozen=True)
@@ -242,6 +242,16 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                     http_status=http_status,
                     article=article,
                 )
+            if looks_like_paywall_excerpt(article.text):
+                return BrowserResult(
+                    ok=False,
+                    status="excerpt_or_login_required",
+                    message=f"Paywall/login teaser text was visible after browser fetch (HTTP {http_status}).",
+                    url=url,
+                    final_url=final_url,
+                    http_status=http_status,
+                    article=article,
+                )
 
             return BrowserResult(
                 ok=True,
@@ -272,7 +282,9 @@ def minimum_text_length_for_url(url: str) -> int:
         return 100
     if "/economic-and-financial-indicators/" in url:
         return 100
-    return 700
+    if "/the-world-in-brief" in url or "/the-us-in-brief" in url or "/united-states-in-brief" in url:
+        return 1500
+    return 2000
 
 
 def minimum_word_count_for_url(url: str) -> int:
@@ -584,8 +596,8 @@ def _verify_manual_login(page: Any, config: AppConfig) -> BrowserResult:
 def _inspect_verification_page(page: Any, verify_url: str) -> BrowserResult:
     html = page.content()
     article = extract_article(html)
-    if article is None or len(article.text) < 700:
-        article = _extract_rendered_article(page)
+    if article is None or len(article.text) < 2000 or looks_like_paywall_excerpt(article.text or ""):
+        article = _extract_rendered_article(page, minimum_text_length=2000)
     if is_cloudflare_challenge(html):
         return BrowserResult(
             ok=False,
@@ -595,7 +607,11 @@ def _inspect_verification_page(page: Any, verify_url: str) -> BrowserResult:
             final_url=page.url,
             article=article,
         )
-    if article is None or len(article.text) < 700:
+    if (
+        article is None
+        or len(article.text) < 2000
+        or looks_like_paywall_excerpt(article.text)
+    ):
         return BrowserResult(
             ok=False,
             status="excerpt_or_login_required",
