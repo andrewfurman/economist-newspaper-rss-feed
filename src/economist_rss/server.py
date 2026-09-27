@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import logging
 import hmac
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-from threading import Lock
+from threading import Lock, Thread
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from .article_links import article_link_key, public_base_url, unwrap_article_url
@@ -244,6 +245,40 @@ class EconomistRssServer:
         httpd.serve_forever()
 
 
+def _refresh_for_request(config: AppConfig, refresh_lock: Lock | None) -> None:
+    """Never make a reader wait on a refresh when there's already a cache to serve.
+
+    A full refresh re-fetches every feed and can take 20+ seconds; doing it inline
+    made clients with shorter timeouts (the PhoneClaw voice bridge, 12 s) fail when a
+    request landed just after the cache went stale (phone-claw#148, 2026-09-26).
+    With a cache, serve it now and refresh in a background thread (the 5-minute
+    timer does the same). Only a never-refreshed store refreshes inline.
+    """
+    with ArticleStore(config.database_path) as store:
+        has_cache = store.get_state("last_refresh_at") is not None
+    if not has_cache:
+        if refresh_lock is None:
+            refresh_if_stale(config)
+        else:
+            with refresh_lock:
+                refresh_if_stale(config)
+        return
+    Thread(target=_background_refresh, args=(config, refresh_lock), daemon=True).start()
+
+
+def _background_refresh(config: AppConfig, refresh_lock: Lock | None) -> None:
+    try:
+        if refresh_lock is None:
+            refresh_if_stale(config)
+        elif refresh_lock.acquire(blocking=False):  # one background refresh at a time
+            try:
+                refresh_if_stale(config)
+            finally:
+                refresh_lock.release()
+    except Exception:  # a failed background refresh must not affect served requests
+        logging.getLogger(__name__).exception("Background refresh failed")
+
+
 def _rss_response(
     config: AppConfig,
     query: str,
@@ -259,11 +294,7 @@ def _rss_response(
         category_filters = _unique_casefolded([path_category, *category_filters])
 
     if not catalog_search.active:
-        if refresh_lock is None:
-            refresh_if_stale(config)
-        else:
-            with refresh_lock:
-                refresh_if_stale(config)
+        _refresh_for_request(config, refresh_lock)
 
     with ArticleStore(config.database_path) as store:
         if catalog_search.active:
