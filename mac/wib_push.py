@@ -61,15 +61,24 @@ def load_env():
 
 
 def api(url, token, payload=None):
-    data = json.dumps(payload).encode() if payload is not None else None
-    request = urllib.request.Request(url, data=data, headers={"Authorization": f"Bearer {token}"})
-    if data is not None:
-        request.add_header("Content-Type", "application/json")
+    """HTTP via macOS curl: the system python3's LibreSSL 2.8 can't finish a TLS
+    handshake with the server's Caddy. The token goes to curl on stdin, not argv."""
+    with tempfile.TemporaryDirectory(prefix="economist-wib-http-") as tmp:
+        config = f'header = "Authorization: Bearer {token}"\n'
+        if payload is not None:
+            body = Path(tmp) / "body.json"
+            body.write_text(json.dumps(payload))
+            config += f'header = "Content-Type: application/json"\ndata-binary = "@{body}"\n'
+        result = subprocess.run(
+            ["curl", "-sS", "--max-time", "60", "-K", "-", "-w", "\n%{http_code}", url],
+            input=config, capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError(f"curl failed: {result.stderr.strip()}")
+    text, _, status = result.stdout.rpartition("\n")
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            return response.status, json.load(response)
-    except urllib.error.HTTPError as error:
-        return error.code, json.loads(error.read() or b"{}")
+        return int(status), json.loads(text or "{}")
+    except ValueError:
+        return int(status), {"message": text[:200]}
 
 
 class DevTools:

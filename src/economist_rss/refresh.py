@@ -633,12 +633,12 @@ def ingest_world_in_brief_html(
 
 
 WORLD_IN_BRIEF_UPDATED_TIME_RE = re.compile(
-    r'<time\b[^>]*\bdatetime="([^"]+)"[^>]*>\s*\(?\s*updated\b', re.I
+    r'<time\b[^>]*\bdatetime="([^"]+)"[^>]*>(?:\s|&nbsp;|\(|<[^>]+>)*updated\b', re.I
 )
 
 
 def _world_in_brief_updated_from_html(html: str) -> str | None:
-    """The page's exact edit time: <time datetime="...Z"> (updated 1h ago)</time>.
+    """The page's exact edit time: <time datetime="...Z">&nbsp;(<span>updated</span> 1h ago)</time>.
 
     The extracted article text drops that element, so read it from the HTML.
     """

@@ -30,7 +30,9 @@ def wib_page(paragraphs: int = 9) -> str:
     return (
         "<html><head><title>World in Brief: American banks' mixed earnings</title></head>"
         f"<body><main><article><h1>World in Brief: American banks' mixed earnings</h1>"
-        '<p><time datetime="2026-10-13T16:28:23.000Z"> (updated 1h ago)</time></p>'
+        '<p><time datetime="2026-10-13T00:00:00.000Z"> <!-- -->Oct 13th 2026</time>'
+        '<time datetime="2026-10-13T16:28:23.000Z" class="css-j1r0u5">&nbsp;(<span>updated</span>'
+        ' <!-- -->1h ago<!-- -->)</time></p>'
         f"{body}</article></main></body></html>"
     )
 
