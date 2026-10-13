@@ -451,6 +451,30 @@ service.
 
 See [docs/EC2_DEPLOYMENT.md](docs/EC2_DEPLOYMENT.md).
 
+### World in Brief from a Mac (since Oct 2026)
+
+economist.com blocks the EC2 server's address ("Access restricted"), so the
+server no longer contacts economist.com (`ECONOMIST_REFRESH_ENABLED=false` in
+`real.env`, refresh timer disabled). Instead a Mac loads World in Brief in its
+own signed-in Chrome, one normal page load per run, and posts the page to
+`POST /api/world-in-brief/ingest` (Bearer `ECONOMIST_INGEST_TOKEN`). The
+server parses it with the same extractor and serves it in the usual feeds.
+Nothing (cookies, browser state) moves between machines; each Mac is signed in
+itself. `GET` on the same path shows the last push.
+
+- `mac/wib_push.py`: stdlib-only script for macOS `python3`. It opens a
+  throwaway Chrome window using a copy of the everyday profile's sign-in, waits
+  for the dated edition, posts it, and deletes the copy.
+- `mac/install.sh primary|backup`: LaunchAgent at 00:50, 02:50, 04:45, 10:30,
+  14:30 and 18:30 ET. The primary (MacinCloud) always runs. The backup
+  (QuickServers) runs 7 minutes later, only if nothing was pushed in the last
+  30 minutes. Needs `~/.config/economist-wib/env` with `ECONOMIST_INGEST_URL`
+  and `ECONOMIST_INGEST_TOKEN`. Logs go to `~/Library/Logs/economist-wib.log`.
+- Timing: editions usually appear around midnight ET, again 4-5:30 am, then
+  through the day (June-Oct 2026 history). 04:45 feeds the family newspaper's
+  5:00 am pass, and its 6:10 am print step runs `wib_push.py` over ssh for one
+  last check.
+
 ## Rate-Limit Avoidance
 
 The defaults intentionally behave like a patient human subscriber:

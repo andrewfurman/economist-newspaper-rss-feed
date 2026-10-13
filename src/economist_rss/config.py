@@ -56,6 +56,9 @@ class AppConfig:
     world_in_brief_enabled: bool = True
     world_in_brief_url: str = "https://www.economist.com/the-world-in-brief"
     world_in_brief_refresh_interval_seconds: float = 3600.0
+    # False stops every outbound economist.com request from this host (scheduled and
+    # reader-triggered refreshes); World in Brief then arrives by push from a Mac.
+    refresh_enabled: bool = True
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -73,6 +76,10 @@ def load_config(path: str | Path) -> AppConfig:
         browser_enabled = _parse_bool(env_browser_enabled, default=browser_enabled)
 
     return AppConfig(
+        refresh_enabled=_parse_bool(
+            os.environ.get("ECONOMIST_REFRESH_ENABLED", ""),
+            default=_bool_value(raw, "refresh_enabled", True),
+        ),
         feeds=feeds,
         output_path=_string_value(raw, "output_path", "dist/economist-fulltext.xml"),
         database_path=_string_value(raw, "database_path", "data/economist-rss.sqlite3"),
