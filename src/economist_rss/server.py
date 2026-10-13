@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from .article_links import article_link_key, public_base_url, unwrap_article_url
 from .config import AppConfig
 from .feed import FeedItem, build_rss, categories_for_item, category_for_slug, classify_edition
-from .refresh import refresh_if_stale
+from .refresh import ingest_world_in_brief_html, refresh_if_stale, world_in_brief_last_push
 from .store import ArticleStore, StoredArticle
 
 CATEGORY_FEED_PREFIX = "/rss/category/"
@@ -24,6 +24,7 @@ DEFAULT_API_ITEM_LIMIT = 50
 MAX_API_ITEM_LIMIT = 500
 MAX_API_OFFSET = 100_000
 MAX_JSON_BODY_BYTES = 16_384
+MAX_INGEST_BODY_BYTES = 4_000_000  # a whole rendered World in Brief page
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,15 @@ class EconomistRssServer:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # noqa: N802
                 parsed = urlparse(self.path)
+                if parsed.path == WORLD_IN_BRIEF_INGEST_PATH:
+                    if not _required_bearer_authorized(
+                        self.headers.get("Authorization", ""),
+                        "ECONOMIST_INGEST_TOKEN",
+                    ):
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
+                    self._send_json({"last_push": world_in_brief_last_push(owner.config)}, status=200)
+                    return
                 if parsed.path == "/healthz":
                     self._send_text("ok\n", content_type="text/plain")
                     return
@@ -170,6 +180,21 @@ class EconomistRssServer:
                         return
                     self._send_json(payload, status=status)
                     return
+                if parsed.path == WORLD_IN_BRIEF_INGEST_PATH:
+                    if not _required_bearer_authorized(
+                        self.headers.get("Authorization", ""),
+                        "ECONOMIST_INGEST_TOKEN",
+                    ):
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
+                    try:
+                        request_body = self._read_json_body(MAX_INGEST_BODY_BYTES)
+                    except ValueError as exc:
+                        self._send_json({"error": str(exc)}, status=400)
+                        return
+                    payload, status = _world_in_brief_ingest_response(owner.config, request_body)
+                    self._send_json(payload, status=status)
+                    return
                 if parsed.path != "/refresh":
                     self.send_error(404)
                     return
@@ -218,7 +243,7 @@ class EconomistRssServer:
                 self.end_headers()
                 self.wfile.write(encoded)
 
-            def _read_json_body(self) -> dict[str, object]:
+            def _read_json_body(self, max_bytes: int = MAX_JSON_BODY_BYTES) -> dict[str, object]:
                 content_type = self.headers.get("Content-Type", "")
                 if content_type.split(";", 1)[0].strip() != "application/json":
                     raise ValueError("Content-Type must be application/json")
@@ -229,7 +254,7 @@ class EconomistRssServer:
                     raise ValueError("Content-Length must be an integer") from exc
                 if content_length < 1:
                     raise ValueError("request body must be a JSON object")
-                if content_length > MAX_JSON_BODY_BYTES:
+                if content_length > max_bytes:
                     raise ValueError("request body is too large")
                 try:
                     payload = json.loads(
@@ -243,6 +268,30 @@ class EconomistRssServer:
 
         httpd = ThreadingHTTPServer((self.host, self.port), Handler)
         httpd.serve_forever()
+
+
+WORLD_IN_BRIEF_INGEST_PATH = "/api/world-in-brief/ingest"
+
+
+def _world_in_brief_ingest_response(
+    config: AppConfig,
+    request_body: dict[str, object],
+) -> tuple[dict[str, object], int]:
+    url = request_body.get("url")
+    html = request_body.get("html")
+    if not isinstance(url, str) or not isinstance(html, str):
+        return {"error": "url and html are required strings"}, 400
+    source_host = request_body.get("source_host")
+    result = ingest_world_in_brief_html(
+        config,
+        url=url,
+        html=html,
+        source_host=source_host if isinstance(source_host, str) else "",
+    )
+    payload: dict[str, object] = {"status": result.status, "message": result.message}
+    if result.ok:
+        payload.update(title=result.title, url=result.url, published=result.published)
+    return payload, 200 if result.ok else 422
 
 
 def _refresh_for_request(config: AppConfig, refresh_lock: Lock | None) -> None:

@@ -13,6 +13,7 @@ import re
 import signal
 import time
 from contextlib import contextmanager
+from urllib.parse import urlparse
 
 from .browser import (
     BrowserResult,
@@ -74,6 +75,15 @@ def refresh_if_stale(
     force: bool = False,
     ignore_refresh_interval: bool = False,
 ) -> RefreshSummary:
+    if not config.refresh_enabled:
+        return RefreshSummary(
+            status="skipped",
+            feeds_checked=0,
+            feed_items_seen=0,
+            articles_fetched=0,
+            articles_failed=0,
+            skipped_reason="refresh_disabled",
+        )
     with refresh_lock(config.database_path) as lock_acquired:
         if not lock_acquired:
             return RefreshSummary(
@@ -494,24 +504,7 @@ def _refresh_world_in_brief_if_stale(
     store.set_state("world_in_brief_last_fetch_at", now_iso())
     if browser_result.ok and browser_result.article is not None:
         final_url = browser_result.final_url or url
-        item = FeedItem(
-            title=browser_result.article.title or "The world in brief",
-            link=final_url,
-            guid=final_url,
-            summary=_text_summary(browser_result.article.text),
-            published=_published_from_world_in_brief(
-                browser_result.article.text,
-                final_url,
-            ),
-            source="The World in Brief",
-        )
-        stored = store.upsert_feed_item(_normal_feed_item(item))
-        store.save_article_content(
-            stored,
-            content_html=browser_result.article.content_html,
-            content_text=browser_result.article.text,
-            content_source="economist_world_in_brief",
-        )
+        _save_world_in_brief(store, browser_result.article, final_url)
         result = ArticleFetchResult(
             content=browser_result.article,
             source="economist_world_in_brief",
@@ -556,6 +549,110 @@ def _refresh_world_in_brief_if_stale(
         special_source="world_in_brief",
     )
     return result
+
+
+def _save_world_in_brief(
+    store: ArticleStore,
+    article: ArticleContent,
+    final_url: str,
+    *,
+    content_source: str = "economist_world_in_brief",
+    published: str | None = None,
+) -> StoredArticle:
+    item = FeedItem(
+        title=article.title or "The world in brief",
+        link=final_url,
+        guid=final_url,
+        summary=_text_summary(article.text),
+        published=published or _published_from_world_in_brief(article.text, final_url),
+        source="The World in Brief",
+    )
+    stored = store.upsert_feed_item(_normal_feed_item(item))
+    store.save_article_content(
+        stored,
+        content_html=article.content_html,
+        content_text=article.text,
+        content_source=content_source,
+    )
+    return stored
+
+
+@dataclass(frozen=True)
+class WorldInBriefIngestResult:
+    ok: bool
+    status: str
+    message: str
+    title: str = ""
+    url: str = ""
+    published: str | None = None
+
+
+def ingest_world_in_brief_html(
+    config: AppConfig,
+    *,
+    url: str,
+    html: str,
+    source_host: str = "",
+) -> WorldInBriefIngestResult:
+    """Save a World in Brief page that a signed-in browser elsewhere already loaded.
+
+    This host's address is blocked by economist.com (Oct 2026), so a Mac on a home or
+    hosted-Mac network loads the page in its own signed-in Chrome and posts the HTML
+    here. Nothing is fetched from economist.com by this call.
+    """
+    if not WORLD_IN_BRIEF_DATE_RE.search(urlparse(url).path) or urlparse(url).hostname not in {
+        "www.economist.com",
+        "economist.com",
+    }:
+        return WorldInBriefIngestResult(False, "bad_url", "url is not a dated World in Brief page")
+    if is_cloudflare_challenge(html):
+        return WorldInBriefIngestResult(False, "cloudflare_challenge", "html is a Cloudflare challenge page")
+    article = extract_article(html)
+    if article is None or len(article.text) < minimum_text_length_for_url(url):
+        return WorldInBriefIngestResult(
+            False, "excerpt_or_login_required", "only short text was found; is the Mac signed in?"
+        )
+    with ArticleStore(config.database_path) as store:
+        stored = _save_world_in_brief(
+            store,
+            article,
+            url,
+            content_source="economist_world_in_brief_push",
+            published=_world_in_brief_updated_from_html(html),
+        )
+        store.set_state(
+            "world_in_brief_last_push",
+            json.dumps(
+                {"at": now_iso(), "url": url, "title": article.title, "source_host": source_host[:80]},
+                sort_keys=True,
+            ),
+        )
+    return WorldInBriefIngestResult(
+        True, "ok", "saved", title=article.title, url=url, published=stored.published
+    )
+
+
+WORLD_IN_BRIEF_UPDATED_TIME_RE = re.compile(
+    r'<time\b[^>]*\bdatetime="([^"]+)"[^>]*>\s*\(?\s*updated\b', re.I
+)
+
+
+def _world_in_brief_updated_from_html(html: str) -> str | None:
+    """The page's exact edit time: <time datetime="...Z"> (updated 1h ago)</time>.
+
+    The extracted article text drops that element, so read it from the HTML.
+    """
+    match = WORLD_IN_BRIEF_UPDATED_TIME_RE.search(html or "")
+    if not match:
+        return None
+    updated_at = parse_datetime(match.group(1))
+    return format_datetime(updated_at.astimezone(timezone.utc)) if updated_at else None
+
+
+def world_in_brief_last_push(config: AppConfig) -> dict[str, object] | None:
+    with ArticleStore(config.database_path) as store:
+        raw = store.get_state("world_in_brief_last_push")
+    return json.loads(raw) if raw else None
 
 
 def _is_refresh_stop_status(status: str) -> bool:
