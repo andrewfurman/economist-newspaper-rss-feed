@@ -1,7 +1,10 @@
 #!/bin/bash
 # Install the World in Brief push as a LaunchAgent on this Mac.
-#   mac/install.sh primary   # MacinCloud: fetches at the times below
-#   mac/install.sh backup    # QuickServers: 7 min later, only if the primary didn't push
+#   mac/install.sh primary   # QuickServers: fetches at the times below
+#   mac/install.sh backup    # MacinCloud: 7 min later, only if the primary didn't push
+# Run it over ssh: it also seeds the job's own Chrome profile from the everyday Chrome sign-in,
+# which a LaunchAgent may not read itself under macOS privacy rules. (MacinCloud's data-center
+# address gets Cloudflare's "Just a moment" check more often, so it is the backup.)
 # Times are America/New_York. 04:45 lands before the newspaper's 5:00 am final pass; the
 # 6:10 am print step asks for one more push on demand (family-newspaper tools/economist_news.py).
 # The other times follow World in Brief's usual updates (~00:00, ~04:00-05:30 and through the day, ET).
@@ -13,6 +16,7 @@ PLIST="$HOME/Library/LaunchAgents/com.aifurman.economist-wib.plist"
 mkdir -p "$DEST" "$HOME/Library/Logs"
 cp "$(dirname "$0")/wib_push.py" "$DEST/wib_push.py"
 [ -f "$HOME/.config/economist-wib/env" ] || { echo "missing ~/.config/economist-wib/env"; exit 1; }
+[ -f "$DEST/chrome-profile/Default/Cookies" ] || /usr/bin/python3 "$DEST/wib_push.py" --seed
 ARGS="<string>/usr/bin/python3</string><string>$DEST/wib_push.py</string>"
 OFFSET=0
 if [ "$ROLE" = backup ]; then ARGS="$ARGS<string>--backup</string>"; OFFSET=7; fi

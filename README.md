@@ -462,14 +462,48 @@ server parses it with the same extractor and serves it in the usual feeds.
 Nothing (cookies, browser state) moves between machines; each Mac is signed in
 itself. `GET` on the same path shows the last push.
 
+The rest of the feed can be pushed the same way (same Bearer token, bodies up
+to 6 MB):
+
+- `POST /api/feeds/ingest` with `{"feeds": [{"url": "<a configured [[feeds]] url>",
+  "xml": "<rss>"}], "source_host": "...", "max_articles": 5}` parses each feed
+  with the code `refresh()` uses. Unknown URLs, Cloudflare pages and non-RSS
+  bodies are reported per entry (`unknown_feed`, `cloudflare_challenge`,
+  `bad_feed`). The response is `{"status", "feeds": [{"url", "items",
+  "status"}], "wanted": [article urls]}`. `wanted` uses refresh's candidate
+  selection (requested first, then newest pending within the lookback, honouring
+  `retry_failed_after_seconds` and `exclude_url_patterns`), without World in
+  Brief, capped by `max_articles` (default `max_articles_per_refresh`, max 10).
+  `GET /api/feeds/wanted?limit=N` returns just `{"wanted": [...]}`.
+- `POST /api/articles/ingest` with `{"url", "html", "source_host"}` (https
+  economist.com only) runs the browser-fetch extractor and minimum-length check
+  and saves with `content_source` `economist_mac_push`; replies 422
+  `cloudflare_challenge` / `excerpt_or_login_required` otherwise and records the
+  failure so the article is not requested again before
+  `retry_failed_after_seconds`. State `articles_last_push` holds the last push.
+
 - `mac/wib_push.py`: stdlib-only script for macOS `python3`. It opens a
-  throwaway Chrome window using a copy of the everyday profile's sign-in, waits
-  for the dated edition, posts it, and deletes the copy.
+  background Chrome window on the job's own profile
+  (`~/Library/Application Support/economist-wib/chrome-profile`), waits for the
+  dated edition and posts it. The profile is kept between runs, so Chrome keeps
+  its Economist session and its passed Cloudflare check like an everyday
+  browser. It is seeded once from the everyday Chrome sign-in with
+  `wib_push.py --seed`, run over ssh: a LaunchAgent may not read Chrome's own
+  folder under macOS privacy rules ("Operation not permitted"). If pushes start
+  failing with `excerpt_or_login_required`, sign in again in everyday Chrome and
+  re-run `--seed`. The script never clicks or solves a Cloudflare check; a run
+  that meets one just fails and the other Mac tries.
+- Articles: on the 02:50 and 14:30 runs (or with `--articles N`) the same window
+  fetches seven section feeds (leaders, briefing, United States, business,
+  finance, science, international), posts them to `/api/feeds/ingest`, then
+  loads up to 4 of the `wanted` articles 20-45 seconds apart and posts each to
+  `/api/articles/ingest`. About 8 article loads a day.
 - `mac/install.sh primary|backup`: LaunchAgent at 00:50, 02:50, 04:45, 10:30,
-  14:30 and 18:30 ET. The primary (MacinCloud) always runs. The backup
-  (QuickServers) runs 7 minutes later, only if nothing was pushed in the last
-  30 minutes. Needs `~/.config/economist-wib/env` with `ECONOMIST_INGEST_URL`
-  and `ECONOMIST_INGEST_TOKEN`. Logs go to `~/Library/Logs/economist-wib.log`.
+  14:30 and 18:30 ET. The primary (QuickServers) always runs. The backup
+  (MacinCloud, whose data-center address meets Cloudflare's check more often)
+  runs 7 minutes later, only if nothing was pushed in the last 30 minutes.
+  Needs `~/.config/economist-wib/env` with `ECONOMIST_INGEST_URL` and
+  `ECONOMIST_INGEST_TOKEN`. Logs go to `~/Library/Logs/economist-wib.log`.
 - Timing: editions usually appear around midnight ET, again 4-5:30 am, then
   through the day (June-Oct 2026 history). 04:45 feeds the family newspaper's
   5:00 am pass, and its 6:10 am print step runs `wib_push.py` over ssh for one

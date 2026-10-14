@@ -20,7 +20,7 @@ from .browser import (
     fetch_article_with_browser,
     minimum_text_length_for_url,
 )
-from .config import AppConfig
+from .config import AppConfig, FeedConfig
 from .extract import ArticleContent, extract_article, is_cloudflare_challenge
 from .feed import FeedItem, parse_feed
 from .fetch import FetchError, Fetcher
@@ -133,19 +133,14 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
             store.set_state("last_feed_error", str(exc))
             continue
         try:
-            items = parse_feed(response.text, feed_config.name)
+            seen = save_feed_xml(store, feed_config, response.text, published_after)
         except Exception as exc:  # noqa: BLE001 - feed parser errors should not kill refresh.
             store.set_state(
                 "last_feed_error",
                 f"Could not parse feed {feed_config.url}: {exc}",
             )
             continue
-        if feed_config.limit is not None:
-            items = items[: feed_config.limit]
-        items = _recent_feed_items(items, published_after)
-        feed_items_seen += len(items)
-        for item in items:
-            store.upsert_feed_item(_normal_feed_item(item))
+        feed_items_seen += seen
 
     fetch_budget = max(0, config.max_articles_per_refresh)
     used_fetch_budget = 0
@@ -167,30 +162,9 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
                     store.set_state("last_refresh_stop_reason", world_result.stop_reason)
 
     remaining_budget = 0 if stop_reason else max(0, fetch_budget - used_fetch_budget)
-    requested_candidates = store.requested_articles(
-        limit=remaining_budget,
-        retry_failed_after_seconds=config.retry_failed_after_seconds,
-        exclude_url_patterns=config.exclude_url_patterns,
-        force=force,
+    candidates = select_article_candidates(
+        store, config, remaining_budget, published_after=published_after, force=force
     )
-    requested_urls = {
-        article.canonical_url for article in requested_candidates
-    }
-    normal_candidates = store.pending_articles(
-        limit=remaining_budget,
-        retry_failed_after_seconds=config.retry_failed_after_seconds,
-        exclude_url_patterns=config.exclude_url_patterns,
-        published_after=published_after,
-        force=force,
-    )
-    candidates = [
-        *requested_candidates,
-        *(
-            article
-            for article in normal_candidates
-            if article.canonical_url not in requested_urls
-        ),
-    ][:remaining_budget]
 
     batch = fetch_article_batch(
         store,
@@ -215,6 +189,175 @@ def refresh(store: ArticleStore, config: AppConfig, *, force: bool = False) -> R
         articles_failed=articles_failed,
         stop_reason=stop_reason,
     )
+
+
+def save_feed_xml(
+    store: ArticleStore,
+    feed_config: FeedConfig,
+    xml_text: str,
+    published_after: datetime | None,
+) -> int:
+    """Parse one feed's XML and upsert its recent items; the part of refresh() shared with push ingest."""
+    items = parse_feed(xml_text, feed_config.name)
+    if feed_config.limit is not None:
+        items = items[: feed_config.limit]
+    items = _recent_feed_items(items, published_after)
+    for item in items:
+        store.upsert_feed_item(_normal_feed_item(item))
+    return len(items)
+
+
+def select_article_candidates(
+    store: ArticleStore,
+    config: AppConfig,
+    limit: int,
+    *,
+    published_after: datetime | None,
+    force: bool = False,
+) -> list[StoredArticle]:
+    """Articles refresh() would fetch next: explicitly requested first, then newest pending."""
+    requested_candidates = store.requested_articles(
+        limit=limit,
+        retry_failed_after_seconds=config.retry_failed_after_seconds,
+        exclude_url_patterns=config.exclude_url_patterns,
+        force=force,
+    )
+    requested_urls = {article.canonical_url for article in requested_candidates}
+    normal_candidates = store.pending_articles(
+        limit=limit,
+        retry_failed_after_seconds=config.retry_failed_after_seconds,
+        exclude_url_patterns=config.exclude_url_patterns,
+        published_after=published_after,
+        force=force,
+    )
+    return [
+        *requested_candidates,
+        *(a for a in normal_candidates if a.canonical_url not in requested_urls),
+    ][:limit]
+
+
+MAX_WANTED_ARTICLES = 10
+
+
+def wanted_article_urls(
+    store: ArticleStore, config: AppConfig, limit: int | None = None
+) -> list[str]:
+    """Article URLs a pushing Mac should load next (World in Brief has its own push)."""
+    cap = config.max_articles_per_refresh if limit is None else limit
+    cap = max(0, min(cap, MAX_WANTED_ARTICLES))
+    if cap == 0:
+        return []
+    candidates = select_article_candidates(
+        store,
+        config,
+        cap + 50,  # headroom: World in Brief pages are filtered out below
+        published_after=cutoff_datetime(config.article_lookback_days),
+    )
+    urls = [a.url for a in candidates if not WORLD_IN_BRIEF_DATE_RE.search(urlparse(a.url).path)]
+    return urls[:cap]
+
+
+@dataclass(frozen=True)
+class FeedPushResult:
+    url: str
+    status: str
+    items: int = 0
+    message: str = ""
+
+
+def ingest_feed_xml(
+    config: AppConfig,
+    *,
+    feeds: list[tuple[str, str]],
+    source_host: str = "",
+    max_articles: int | None = None,
+) -> tuple[list[FeedPushResult], list[str]]:
+    """Save RSS XML that a signed-in Mac loaded, then say which articles still need full text."""
+    by_url = {feed.url: feed for feed in config.feeds}
+    published_after = cutoff_datetime(config.article_lookback_days)
+    results: list[FeedPushResult] = []
+    with ArticleStore(config.database_path) as store:
+        for url, xml in feeds:
+            feed_config = by_url.get(url)
+            if feed_config is None:
+                results.append(FeedPushResult(url, "unknown_feed", message="url is not a configured feed"))
+            elif is_cloudflare_challenge(xml):
+                results.append(
+                    FeedPushResult(url, "cloudflare_challenge", message="xml is a Cloudflare challenge page")
+                )
+            else:
+                try:
+                    count = save_feed_xml(store, feed_config, xml, published_after)
+                except Exception as exc:  # noqa: BLE001
+                    results.append(FeedPushResult(url, "bad_feed", message=f"could not parse feed: {exc}"[:200]))
+                else:
+                    results.append(FeedPushResult(url, "ok", items=count))
+        if any(r.status == "ok" for r in results):
+            store.set_state(
+                "feeds_last_push",
+                json.dumps({"at": now_iso(), "source_host": source_host[:80]}, sort_keys=True),
+            )
+        wanted = wanted_article_urls(store, config, max_articles)
+    return results, wanted
+
+
+@dataclass(frozen=True)
+class ArticlePushResult:
+    ok: bool
+    status: str
+    message: str
+    title: str = ""
+    url: str = ""
+    chars: int = 0
+
+
+def ingest_article_html(
+    config: AppConfig, *, url: str, html: str, source_host: str = ""
+) -> ArticlePushResult:
+    """Save an article page that a signed-in browser elsewhere loaded (like a browser fetch success)."""
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in {"www.economist.com", "economist.com"}:
+        return ArticlePushResult(False, "bad_url", "url must be an https economist.com page")
+    with ArticleStore(config.database_path) as store:
+        article = store.get_article(url)
+
+        def fail(status: str, message: str) -> ArticlePushResult:
+            if article is not None:
+                store.mark_fetch_error(article, status=status, error=message)
+            return ArticlePushResult(False, status, message)
+
+        if is_cloudflare_challenge(html):
+            return fail("cloudflare_challenge", "The article response was a Cloudflare challenge page.")
+        content = extract_article(html)
+        if content is None or len(content.text) < minimum_text_length_for_url(url):
+            return fail(
+                "excerpt_or_login_required",
+                "The article page did not expose full subscriber text.",
+            )
+        if article is None:
+            article = store.upsert_feed_item(
+                _normal_feed_item(
+                    FeedItem(
+                        title=content.title or url,
+                        link=url,
+                        guid=url,
+                        summary=_text_summary(content.text),
+                        published=None,
+                        source="The Economist",
+                    )
+                )
+            )
+        store.save_article_content(
+            article,
+            content_html=content.content_html,
+            content_text=content.text,
+            content_source="economist_mac_push",
+        )
+        store.set_state(
+            "articles_last_push",
+            json.dumps({"at": now_iso(), "url": url, "source_host": source_host[:80]}, sort_keys=True),
+        )
+    return ArticlePushResult(True, "ok", "saved", title=content.title, url=url, chars=len(content.text))
 
 
 def fetch_article_batch(
