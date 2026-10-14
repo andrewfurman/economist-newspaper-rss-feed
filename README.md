@@ -462,6 +462,26 @@ server parses it with the same extractor and serves it in the usual feeds.
 Nothing (cookies, browser state) moves between machines; each Mac is signed in
 itself. `GET` on the same path shows the last push.
 
+The rest of the feed can be pushed the same way (same Bearer token, bodies up
+to 6 MB):
+
+- `POST /api/feeds/ingest` with `{"feeds": [{"url": "<a configured [[feeds]] url>",
+  "xml": "<rss>"}], "source_host": "...", "max_articles": 5}` parses each feed
+  with the code `refresh()` uses. Unknown URLs, Cloudflare pages and non-RSS
+  bodies are reported per entry (`unknown_feed`, `cloudflare_challenge`,
+  `bad_feed`). The response is `{"status", "feeds": [{"url", "items",
+  "status"}], "wanted": [article urls]}`. `wanted` uses refresh's candidate
+  selection (requested first, then newest pending within the lookback, honouring
+  `retry_failed_after_seconds` and `exclude_url_patterns`), without World in
+  Brief, capped by `max_articles` (default `max_articles_per_refresh`, max 10).
+  `GET /api/feeds/wanted?limit=N` returns just `{"wanted": [...]}`.
+- `POST /api/articles/ingest` with `{"url", "html", "source_host"}` (https
+  economist.com only) runs the browser-fetch extractor and minimum-length check
+  and saves with `content_source` `economist_mac_push`; replies 422
+  `cloudflare_challenge` / `excerpt_or_login_required` otherwise and records the
+  failure so the article is not requested again before
+  `retry_failed_after_seconds`. State `articles_last_push` holds the last push.
+
 - `mac/wib_push.py`: stdlib-only script for macOS `python3`. It opens a
   throwaway Chrome window using a copy of the everyday profile's sign-in, waits
   for the dated edition, posts it, and deletes the copy.

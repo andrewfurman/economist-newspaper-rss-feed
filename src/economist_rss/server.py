@@ -14,7 +14,14 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from .article_links import article_link_key, public_base_url, unwrap_article_url
 from .config import AppConfig
 from .feed import FeedItem, build_rss, categories_for_item, category_for_slug, classify_edition
-from .refresh import ingest_world_in_brief_html, refresh_if_stale, world_in_brief_last_push
+from .refresh import (
+    ingest_article_html,
+    ingest_feed_xml,
+    ingest_world_in_brief_html,
+    refresh_if_stale,
+    wanted_article_urls,
+    world_in_brief_last_push,
+)
 from .store import ArticleStore, StoredArticle
 
 CATEGORY_FEED_PREFIX = "/rss/category/"
@@ -24,7 +31,7 @@ DEFAULT_API_ITEM_LIMIT = 50
 MAX_API_ITEM_LIMIT = 500
 MAX_API_OFFSET = 100_000
 MAX_JSON_BODY_BYTES = 16_384
-MAX_INGEST_BODY_BYTES = 4_000_000  # a whole rendered World in Brief page
+MAX_INGEST_BODY_BYTES = 6_000_000  # a rendered article page or a few section feeds
 
 
 @dataclass(frozen=True)
@@ -59,6 +66,19 @@ class EconomistRssServer:
                         self._send_json({"error": "unauthorized"}, status=401)
                         return
                     self._send_json({"last_push": world_in_brief_last_push(owner.config)}, status=200)
+                    return
+                if parsed.path == FEEDS_WANTED_PATH:
+                    if not _required_bearer_authorized(
+                        self.headers.get("Authorization", ""),
+                        "ECONOMIST_INGEST_TOKEN",
+                    ):
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
+                    raw_limit = parse_qs(parsed.query).get("limit", [""])[0]
+                    limit = int(raw_limit) if raw_limit.isdigit() else None
+                    with ArticleStore(owner.config.database_path) as store:
+                        wanted = wanted_article_urls(store, owner.config, limit)
+                    self._send_json({"wanted": wanted}, status=200)
                     return
                 if parsed.path == "/healthz":
                     self._send_text("ok\n", content_type="text/plain")
@@ -180,7 +200,12 @@ class EconomistRssServer:
                         return
                     self._send_json(payload, status=status)
                     return
-                if parsed.path == WORLD_IN_BRIEF_INGEST_PATH:
+                ingest_handlers = {
+                    WORLD_IN_BRIEF_INGEST_PATH: _world_in_brief_ingest_response,
+                    FEEDS_INGEST_PATH: _feeds_ingest_response,
+                    ARTICLES_INGEST_PATH: _article_ingest_response,
+                }
+                if parsed.path in ingest_handlers:
                     if not _required_bearer_authorized(
                         self.headers.get("Authorization", ""),
                         "ECONOMIST_INGEST_TOKEN",
@@ -192,7 +217,7 @@ class EconomistRssServer:
                     except ValueError as exc:
                         self._send_json({"error": str(exc)}, status=400)
                         return
-                    payload, status = _world_in_brief_ingest_response(owner.config, request_body)
+                    payload, status = ingest_handlers[parsed.path](owner.config, request_body)
                     self._send_json(payload, status=status)
                     return
                 if parsed.path != "/refresh":
@@ -291,6 +316,70 @@ def _world_in_brief_ingest_response(
     payload: dict[str, object] = {"status": result.status, "message": result.message}
     if result.ok:
         payload.update(title=result.title, url=result.url, published=result.published)
+    return payload, 200 if result.ok else 422
+
+
+FEEDS_INGEST_PATH = "/api/feeds/ingest"
+FEEDS_WANTED_PATH = "/api/feeds/wanted"
+ARTICLES_INGEST_PATH = "/api/articles/ingest"
+
+
+def _feeds_ingest_response(
+    config: AppConfig,
+    request_body: dict[str, object],
+) -> tuple[dict[str, object], int]:
+    entries = request_body.get("feeds")
+    if not isinstance(entries, list) or not entries:
+        return {"error": "feeds must be a non-empty list of {url, xml}"}, 400
+    feeds: list[tuple[str, str]] = []
+    for entry in entries:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("url"), str)
+            or not isinstance(entry.get("xml"), str)
+        ):
+            return {"error": "each feed needs string url and xml"}, 400
+        feeds.append((entry["url"], entry["xml"]))
+    max_articles = request_body.get("max_articles")
+    source_host = request_body.get("source_host")
+    results, wanted = ingest_feed_xml(
+        config,
+        feeds=feeds,
+        source_host=source_host if isinstance(source_host, str) else "",
+        max_articles=max_articles
+        if isinstance(max_articles, int) and not isinstance(max_articles, bool) and max_articles >= 0
+        else None,
+    )
+    ok = any(r.status == "ok" for r in results)
+    payload: dict[str, object] = {
+        "status": "ok" if ok else "no_feeds_saved",
+        "feeds": [
+            {"url": r.url, "items": r.items, "status": r.status, **({"message": r.message} if r.message else {})}
+            for r in results
+        ],
+        "wanted": wanted,
+    }
+    return payload, 200 if ok else 422
+
+
+def _article_ingest_response(
+    config: AppConfig,
+    request_body: dict[str, object],
+) -> tuple[dict[str, object], int]:
+    url = request_body.get("url")
+    html = request_body.get("html")
+    if not isinstance(url, str) or not isinstance(html, str):
+        return {"error": "url and html are required strings"}, 400
+    source_host = request_body.get("source_host")
+    result = ingest_article_html(
+        config,
+        url=url,
+        html=html,
+        source_host=source_host if isinstance(source_host, str) else "",
+    )
+    payload: dict[str, object] = {"status": result.status, "message": result.message}
+    if result.ok:
+        payload.update(url=result.url, title=result.title, chars=result.chars)
     return payload, 200 if result.ok else 422
 
 
