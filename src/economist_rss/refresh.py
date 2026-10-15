@@ -27,7 +27,7 @@ from .extract import (
     is_cloudflare_challenge,
     looks_like_paywall_excerpt,
 )
-from .feed import FeedItem, parse_feed
+from .feed import US_IN_BRIEF_CATEGORY, FeedItem, categories_for_title, parse_feed
 from .fetch import FetchError, Fetcher
 from .issue import CurrentIssue, resolve_current_issue
 from .store import ArticleStore, StoredArticle
@@ -790,6 +790,100 @@ def ingest_world_in_brief_html(
     return WorldInBriefIngestResult(
         True, "ok", "saved", title=article.title, url=url, published=stored.published
     )
+
+
+US_IN_BRIEF_TITLE = "The US in Brief"
+DATED_URL_RE = re.compile(r"/(\d{4})/(\d{2})/(\d{2})/")
+
+
+def ingest_us_in_brief_html(
+    config: AppConfig,
+    *,
+    url: str,
+    html: str,
+    source_host: str = "",
+) -> WorldInBriefIngestResult:
+    """Save the US in Brief page that a signed-in Mac loaded after World in Brief.
+
+    The World in Brief page ends with a "Next" link to the day's US in Brief article. The
+    Mac follows it in the same Chrome window and posts the page here. Same checks as the
+    World in Brief push (Cloudflare page, short text, paywall teaser). The item is stored
+    with the In Brief, United States and The US in Brief categories so that it is served
+    as a compact full-text brief and is the only US in Brief in the feeds.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in {"www.economist.com", "economist.com"}:
+        return WorldInBriefIngestResult(False, "bad_url", "url must be an https economist.com page")
+    if WORLD_IN_BRIEF_DATE_RE.search(parsed.path):
+        return WorldInBriefIngestResult(False, "bad_url", "url is the World in Brief, not US in Brief")
+    if is_cloudflare_challenge(html):
+        return WorldInBriefIngestResult(False, "cloudflare_challenge", "html is a Cloudflare challenge page")
+    article = extract_article(html)
+    if (
+        article is None
+        or len(article.text) < minimum_text_length_for_url(url)
+        or looks_like_paywall_excerpt(article.text)
+    ):
+        return WorldInBriefIngestResult(
+            False, "excerpt_or_login_required", "only short text was found; is the Mac signed in?"
+        )
+    title = " ".join((article.title or "").split())
+    if US_IN_BRIEF_CATEGORY not in categories_for_title(title):
+        marker = " ".join(f"{parsed.path} {title} {article.text[:1500]}".casefold().replace("-", " ").split())
+        if "us in brief" not in marker and "united states in brief" not in marker:
+            return WorldInBriefIngestResult(False, "not_us_in_brief", "page is not a US in Brief article")
+        title = f"{US_IN_BRIEF_TITLE}: {title}" if title else US_IN_BRIEF_TITLE
+    published = (
+        _world_in_brief_updated_from_html(html)
+        or _published_from_world_in_brief(article.text, url)
+        or _published_from_dated_url(url)
+        or format_datetime(datetime.now(timezone.utc))
+    )
+    with ArticleStore(config.database_path) as store:
+        stored = store.upsert_feed_item(
+            _normal_feed_item(
+                FeedItem(
+                    title=title,
+                    link=url,
+                    guid=url,
+                    summary=_text_summary(article.text),
+                    published=published,
+                    source=US_IN_BRIEF_TITLE,
+                    categories=["In Brief", "United States", US_IN_BRIEF_CATEGORY],
+                )
+            )
+        )
+        store.save_article_content(
+            stored,
+            content_html=article.content_html,
+            content_text=article.text,
+            content_source="economist_us_in_brief_push",
+        )
+        store.set_state(
+            "us_in_brief_last_push",
+            json.dumps(
+                {"at": now_iso(), "url": url, "title": title, "source_host": source_host[:80]},
+                sort_keys=True,
+            ),
+        )
+    return WorldInBriefIngestResult(True, "ok", "saved", title=title, url=url, published=stored.published)
+
+
+def _published_from_dated_url(url: str) -> str | None:
+    match = DATED_URL_RE.search(urlparse(url).path)
+    if not match:
+        return None
+    year, month, day = (int(part) for part in match.groups())
+    try:
+        return format_datetime(datetime(year, month, day, tzinfo=timezone.utc))
+    except ValueError:
+        return None
+
+
+def us_in_brief_last_push(config: AppConfig) -> dict[str, object] | None:
+    with ArticleStore(config.database_path) as store:
+        raw = store.get_state("us_in_brief_last_push")
+    return json.loads(raw) if raw else None
 
 
 WORLD_IN_BRIEF_UPDATED_TIME_RE = re.compile(

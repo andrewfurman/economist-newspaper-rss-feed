@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Load today's World in Brief in this Mac's signed-in Chrome and push it to the feed server.
+"""Load today's World in Brief and US in Brief in this Mac's signed-in Chrome and push them.
 
 The feed server's AWS address is blocked by economist.com (Oct 2026). This Mac loads
 the page like a person would, in a background Chrome window with its own profile
 (~/Library/Application Support/economist-wib/chrome-profile), then posts the page to
-POST {ECONOMIST_INGEST_URL} on the feed server. On the article runs it also pushes a few
+POST {ECONOMIST_INGEST_URL} on the feed server. It then follows the page's "Next: US in
+Brief" link, as a person would, and posts that page to /api/us-in-brief/ingest. On the article runs it also pushes a few
 section feeds and loads the handful of new articles the server asks for.
 
 The profile is seeded once from the everyday Chrome profile's sign-in (--seed, over ssh:
@@ -34,6 +35,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 WIB_URL = "https://www.economist.com/the-world-in-brief"
 CHROME_DIR = Path.home() / "Library/Application Support/Google/Chrome"
@@ -43,7 +45,7 @@ PROFILE = HOME_DIR / "chrome-profile"
 ENV_FILE = Path.home() / ".config/economist-wib/env"
 # Section feeds to keep fresh (must match the server's [[feeds]] URLs) and when to do it.
 FEEDS = [f"https://www.economist.com/{s}/rss.xml" for s in
-         ("leaders", "briefing", "united-states", "business", "finance-and-economics",
+         ("leaders", "briefing", "united-states", "in-brief", "business", "finance-and-economics",
           "science-and-technology", "international")]
 ARTICLE_HOURS_ET = {2, 14}  # the 02:50 and 14:30 runs
 ARTICLES_PER_RUN = 4
@@ -55,6 +57,12 @@ PAGE_STATE_JS = r"""JSON.stringify({
   paras: [...document.querySelectorAll('main p, article p')].filter(p => p.innerText.length > 80).length,
   challenge: /just a moment|verify you are human/i.test(document.title + ' ' + document.body.innerText.slice(0, 500)),
 })"""
+# The World in Brief page ends with a "Next" pager link to the day's US in Brief.
+US_LINK_JS = r"""(() => {
+  const links = [...document.querySelectorAll('a[href]')].filter(a =>
+    /\b(US|United States) in Brief\b/i.test(a.innerText) && !/the-world-in-brief/.test(a.href));
+  return links.length ? links[links.length - 1].href : null;
+})()"""
 # The extractor needs the JSON-LD and the article markup, not the whole app shell.
 PAGE_HTML_JS = r"""(() => {
   const ld = [...document.querySelectorAll('script[type="application/ld+json"]')].map(s => s.outerHTML).join('');
@@ -261,6 +269,36 @@ def wib_ready(state):
     return "/the-world-in-brief/20" in state.get("url", "") and state.get("paras", 0) >= 5
 
 
+def us_in_brief_url(href):
+    """The pager link, if it is a plain https economist.com page; else None."""
+    parsed = urlparse(href or "")
+    if parsed.scheme == "https" and parsed.hostname in ("www.economist.com", "economist.com"):
+        return href
+    return None
+
+
+def push_us_in_brief(browser, href, ingest_url, token):
+    """Load the US in Brief page the pager pointed at and push it. Returns True on success.
+
+    One extra page load, a few seconds after World in Brief. A Cloudflare check is never
+    clicked or solved: the page just never becomes ready, and this logs and gives up.
+    """
+    url = us_in_brief_url(href)
+    if not url:
+        log(f"us-in-brief: no usable Next link on the World in Brief page ({href!r})")
+        return False
+    time.sleep(random.uniform(5, 15))
+    try:
+        final_url, html = browser.load(url, article_ready, timeout=90)
+    except RuntimeError as exc:
+        log(f"us-in-brief: {exc}")
+        return False
+    status, body = api(ingest_url.split("/api/")[0] + "/api/us-in-brief/ingest", token,
+                       {"url": final_url, "html": html, "source_host": socket.gethostname()})
+    log(f"us-in-brief {status}: {body.get('status')} {body.get('title', body.get('message', ''))} {final_url}")
+    return status == 200
+
+
 def article_ready(state):
     return state.get("paras", 0) >= 4 and not state.get("challenge")
 
@@ -337,6 +375,14 @@ def main():
         status, body = api(ingest_url, token, {"url": url, "html": html, "source_host": socket.gethostname()})
         log(f"push {status}: {body.get('status')} {body.get('title', body.get('message', ''))} {url}")
         result = 0 if status == 200 else 1
+        if status == 200:
+            # A US in Brief failure is logged but does not fail the run (World in Brief did land).
+            try:
+                href = browser.evaluate(US_LINK_JS)
+            except RuntimeError as exc:
+                href = None
+                log(f"us-in-brief: {exc}")
+            push_us_in_brief(browser, href, ingest_url, token)
         if articles:
             result |= push_articles(browser, ingest_url, token, articles)
     return result

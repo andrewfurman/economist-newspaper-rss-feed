@@ -17,9 +17,11 @@ from .feed import FeedItem, build_rss, categories_for_item, category_for_slug, c
 from .refresh import (
     ingest_article_html,
     ingest_feed_xml,
+    ingest_us_in_brief_html,
     ingest_world_in_brief_html,
     refresh_if_stale,
     wanted_article_urls,
+    us_in_brief_last_push,
     world_in_brief_last_push,
 )
 from .store import ArticleStore, StoredArticle
@@ -66,6 +68,15 @@ class EconomistRssServer:
                         self._send_json({"error": "unauthorized"}, status=401)
                         return
                     self._send_json({"last_push": world_in_brief_last_push(owner.config)}, status=200)
+                    return
+                if parsed.path == US_IN_BRIEF_INGEST_PATH:
+                    if not _required_bearer_authorized(
+                        self.headers.get("Authorization", ""),
+                        "ECONOMIST_INGEST_TOKEN",
+                    ):
+                        self._send_json({"error": "unauthorized"}, status=401)
+                        return
+                    self._send_json({"last_push": us_in_brief_last_push(owner.config)}, status=200)
                     return
                 if parsed.path == FEEDS_WANTED_PATH:
                     if not _required_bearer_authorized(
@@ -202,6 +213,7 @@ class EconomistRssServer:
                     return
                 ingest_handlers = {
                     WORLD_IN_BRIEF_INGEST_PATH: _world_in_brief_ingest_response,
+                    US_IN_BRIEF_INGEST_PATH: _us_in_brief_ingest_response,
                     FEEDS_INGEST_PATH: _feeds_ingest_response,
                     ARTICLES_INGEST_PATH: _article_ingest_response,
                 }
@@ -298,16 +310,34 @@ class EconomistRssServer:
 WORLD_IN_BRIEF_INGEST_PATH = "/api/world-in-brief/ingest"
 
 
+US_IN_BRIEF_INGEST_PATH = "/api/us-in-brief/ingest"
+
+
 def _world_in_brief_ingest_response(
     config: AppConfig,
     request_body: dict[str, object],
+) -> tuple[dict[str, object], int]:
+    return _brief_ingest_response(config, request_body, ingest_world_in_brief_html)
+
+
+def _us_in_brief_ingest_response(
+    config: AppConfig,
+    request_body: dict[str, object],
+) -> tuple[dict[str, object], int]:
+    return _brief_ingest_response(config, request_body, ingest_us_in_brief_html)
+
+
+def _brief_ingest_response(
+    config: AppConfig,
+    request_body: dict[str, object],
+    ingest,
 ) -> tuple[dict[str, object], int]:
     url = request_body.get("url")
     html = request_body.get("html")
     if not isinstance(url, str) or not isinstance(html, str):
         return {"error": "url and html are required strings"}, 400
     source_host = request_body.get("source_host")
-    result = ingest_world_in_brief_html(
+    result = ingest(
         config,
         url=url,
         html=html,

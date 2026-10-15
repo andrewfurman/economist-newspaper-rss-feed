@@ -151,8 +151,8 @@ missing. URL fallback examples:
   `The World in Brief`
 
 Some items also get title-derived category tags when the URL section alone is
-too broad. For example, `The US in Brief: ...` emits both `In Brief` and
-`United States`, and `The World in Brief` emits `The World in Brief`.
+too broad. For example, `The US in Brief: ...` emits `United States` and `The US in Brief` (plus
+`In Brief` when it comes from that section), and `The World in Brief` emits `The World in Brief`.
 
 Interactive URLs can include both the underlying section and format, such as
 `Europe` and `Interactive`. Use `<category>` for reader filtering by newspaper
@@ -451,7 +451,7 @@ service.
 
 See [docs/EC2_DEPLOYMENT.md](docs/EC2_DEPLOYMENT.md).
 
-### World in Brief from a Mac (since Oct 2026)
+### World in Brief and US in Brief from a Mac (since Oct 2026)
 
 economist.com blocks the EC2 server's address ("Access restricted"), so the
 server no longer contacts economist.com (`ECONOMIST_REFRESH_ENABLED=false` in
@@ -459,6 +459,20 @@ server no longer contacts economist.com (`ECONOMIST_REFRESH_ENABLED=false` in
 own signed-in Chrome, one normal page load per run, and posts the page to
 `POST /api/world-in-brief/ingest` (Bearer `ECONOMIST_INGEST_TOKEN`). The
 server parses it with the same extractor and serves it in the usual feeds.
+
+The World in Brief page ends with a "Next" link to the day's US in Brief. Once the
+server stopped contacting economist.com nothing fetched that article any more (it
+used to arrive through the section feeds plus the refresh's article queue; issue
+#59). So right after World in Brief the same Chrome window follows that link (one
+extra page load, 5-15 seconds later) and posts it to `POST /api/us-in-brief/ingest`
+(same body, Bearer token, checks and paywall/teaser rejection as World in Brief;
+`422 not_us_in_brief` if the page is not a US in Brief article). It is stored with
+the categories `In Brief`, `United States` and `The US in Brief`, so it is a
+full-text brief, only the latest one is emitted, `/rss.xml` carries it next to
+World in Brief, and `/rss/category/the-us-in-brief.xml` serves just it. `GET` on
+the path shows the last push. A missing link, Cloudflare check or failed load is
+logged (`us-in-brief: ...`) and skipped: nothing is clicked or solved, and World
+in Brief's result and exit code are unaffected.
 Nothing (cookies, browser state) moves between machines; each Mac is signed in
 itself. `GET` on the same path shows the last push.
 
@@ -485,7 +499,8 @@ to 6 MB):
 - `mac/wib_push.py`: stdlib-only script for macOS `python3`. It opens a
   background Chrome window on the job's own profile
   (`~/Library/Application Support/economist-wib/chrome-profile`), waits for the
-  dated edition and posts it. The profile is kept between runs, so Chrome keeps
+  dated edition and posts it, then follows the "Next: US in Brief" link and posts
+  that too. The profile is kept between runs, so Chrome keeps
   its Economist session and its passed Cloudflare check like an everyday
   browser. It is seeded once from the everyday Chrome sign-in with
   `wib_push.py --seed`, run over ssh: a LaunchAgent may not read Chrome's own
@@ -494,8 +509,8 @@ to 6 MB):
   re-run `--seed`. The script never clicks or solves a Cloudflare check; a run
   that meets one just fails and the other Mac tries.
 - Articles: on the 02:50 and 14:30 runs (or with `--articles N`) the same window
-  fetches seven section feeds (leaders, briefing, United States, business,
-  finance, science, international), posts them to `/api/feeds/ingest`, then
+  fetches eight section feeds (leaders, briefing, United States, In Brief,
+  business, finance, science, international), posts them to `/api/feeds/ingest`, then
   loads up to 4 of the `wanted` articles 20-45 seconds apart and posts each to
   `/api/articles/ingest`. About 8 article loads a day.
 - `mac/install.sh primary|backup`: LaunchAgent at 00:50, 02:50, 04:45, 10:30,
@@ -508,6 +523,17 @@ to 6 MB):
   through the day (June-Oct 2026 history). 04:45 feeds the family newspaper's
   5:00 am pass, and its 6:10 am print step runs `wib_push.py` over ssh for one
   last check.
+
+Deploying a change to the push (the category backfill runs once on server start):
+
+1. Server: update `/opt/economist-newspaper-rss-feed` to the merged main, then
+   `sudo systemctl restart economist-rss.service`. Keep
+   `ECONOMIST_REFRESH_ENABLED=false` and the refresh timer disabled.
+2. Each Mac (QuickServers primary, then MacinCloud backup): copy the new
+   `mac/wib_push.py` to `~/Library/Application Support/economist-wib/wib_push.py`
+   (or re-run `mac/install.sh primary|backup`, which does that and rewrites the
+   LaunchAgent). No new config or token. Check with `python3 wib_push.py` and look
+   for a `us-in-brief 200: ok` line in `~/Library/Logs/economist-wib.log`.
 
 ## Rate-Limit Avoidance
 
