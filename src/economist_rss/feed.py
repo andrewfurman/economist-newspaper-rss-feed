@@ -143,7 +143,7 @@ def _omits_item_link(item: FeedItem) -> bool:
 
 def _uses_full_text_description(item: FeedItem) -> bool:
     categories = set(categories_for_item(item))
-    if "The World in Brief" in categories:
+    if "The World in Brief" in categories or US_IN_BRIEF_CATEGORY in categories:
         return True
     return {"In Brief", "United States"}.issubset(categories)
 
@@ -294,11 +294,13 @@ FORMAT_CATEGORIES = {
     "interactive": "Interactive",
 }
 
+US_IN_BRIEF_CATEGORY = "The US in Brief"
+
 CATEGORY_SLUG_ALIASES = {
-    "the-us-in-brief": "United States",
-    "us-in-brief": "United States",
-    "the-united-states-in-brief": "United States",
-    "united-states-in-brief": "United States",
+    "the-us-in-brief": US_IN_BRIEF_CATEGORY,
+    "us-in-brief": US_IN_BRIEF_CATEGORY,
+    "the-united-states-in-brief": US_IN_BRIEF_CATEGORY,
+    "united-states-in-brief": US_IN_BRIEF_CATEGORY,
     "world-in-brief": "The World in Brief",
 }
 
@@ -337,7 +339,7 @@ def categories_for_title(title: str) -> list[str]:
             "united states in brief",
         )
     ):
-        return ["United States"]
+        return ["United States", US_IN_BRIEF_CATEGORY]
     if any(
         _title_matches_prefix(normalized, prefix)
         for prefix in ("the world in brief", "world in brief")

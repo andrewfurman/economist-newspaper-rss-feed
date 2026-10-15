@@ -9,11 +9,11 @@ import re
 import sqlite3
 from typing import Iterable
 
-from .feed import FeedItem, categories_for_item, classify_edition
+from .feed import US_IN_BRIEF_CATEGORY, FeedItem, categories_for_item, classify_edition
 from .util import canonical_url, cutoff_datetime, normalized_datetime, now_iso, parse_datetime, stable_id
 
 SEARCH_INDEX_VERSION = "1"
-CATEGORY_BACKFILL_VERSION = "1"
+CATEGORY_BACKFILL_VERSION = "2"  # 2: The US in Brief category
 
 
 @dataclass(frozen=True)
@@ -1119,7 +1119,7 @@ def _brief_item_group(item: FeedItem) -> str | None:
     categories = set(categories_for_item(item))
     if "The World in Brief" in categories:
         return "world_in_brief"
-    if {"In Brief", "United States"}.issubset(categories):
+    if US_IN_BRIEF_CATEGORY in categories or {"In Brief", "United States"}.issubset(categories):
         return "united_states_in_brief"
     return None
 

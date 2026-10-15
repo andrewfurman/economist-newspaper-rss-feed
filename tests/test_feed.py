@@ -219,7 +219,7 @@ class FeedTests(unittest.TestCase):
             guid="story-1",
         )
 
-        self.assertEqual(categories_for_item(item), ["In Brief", "United States"])
+        self.assertEqual(categories_for_item(item), ["In Brief", "United States", "The US in Brief"])
 
     def test_world_in_brief_title_adds_world_in_brief_category(self):
         self.assertEqual(
@@ -230,7 +230,7 @@ class FeedTests(unittest.TestCase):
     def test_title_categories_accept_common_in_brief_variants(self):
         self.assertEqual(
             categories_for_title("United States in Brief: Primary night"),
-            ["United States"],
+            ["United States", "The US in Brief"],
         )
         self.assertEqual(
             categories_for_title("World in Brief: Wednesday update"),
@@ -246,7 +246,7 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(category_for_slug("the-world-in-brief"), "The World in Brief")
 
     def test_category_for_slug_accepts_in_brief_aliases(self):
-        self.assertEqual(category_for_slug("us-in-brief"), "United States")
+        self.assertEqual(category_for_slug("us-in-brief"), "The US in Brief")
         self.assertEqual(category_for_slug("world-in-brief"), "The World in Brief")
 
     def test_categories_for_interactive_section_url(self):
