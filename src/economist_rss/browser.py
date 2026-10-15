@@ -9,7 +9,12 @@ import time
 from typing import Any
 
 from .config import AppConfig
-from .extract import ArticleContent, extract_article, is_cloudflare_challenge
+from .extract import (
+    ArticleContent,
+    extract_article,
+    is_cloudflare_challenge,
+    looks_like_paywall_excerpt,
+)
 
 
 @dataclass(frozen=True)
@@ -232,7 +237,11 @@ def fetch_article_with_browser(url: str, config: AppConfig) -> BrowserResult:
                     minimum_text_length=minimum_text_length,
                     minimum_word_count=minimum_word_count,
                 )
-            if article is None or len(article.text) < minimum_text_length:
+            if (
+                article is None
+                or len(article.text) < minimum_text_length
+                or looks_like_paywall_excerpt(article.text)
+            ):
                 return BrowserResult(
                     ok=False,
                     status="excerpt_or_login_required",
@@ -595,7 +604,7 @@ def _inspect_verification_page(page: Any, verify_url: str) -> BrowserResult:
             final_url=page.url,
             article=article,
         )
-    if article is None or len(article.text) < 700:
+    if article is None or len(article.text) < 700 or looks_like_paywall_excerpt(article.text):
         return BrowserResult(
             ok=False,
             status="excerpt_or_login_required",

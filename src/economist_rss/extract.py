@@ -315,6 +315,26 @@ def _word_count(parts: list[str] | tuple[str, ...] | Any) -> int:
     return sum(len(str(part).split()) for part in parts)
 
 
+def looks_like_paywall_excerpt(text: str) -> bool:
+    """True when extracted text is still a login/paywall teaser.
+
+    Teasers can clear the length check because related-article lists and
+    paywall calls to action inflate the body.
+    """
+    normalized = _squash_space(text or "").lower()
+    if not normalized:
+        return True
+    markers = (
+        "continue with a free trial",
+        "already have an account?",
+        "create a free account to unlock",
+        "get full access to our independent journalism",
+        "unlock just this article",
+        "this article is for subscribers",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 def is_cloudflare_challenge(html: str) -> bool:
     text = html or ""
     return bool(
