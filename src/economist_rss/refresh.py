@@ -21,7 +21,12 @@ from .browser import (
     minimum_text_length_for_url,
 )
 from .config import AppConfig, FeedConfig
-from .extract import ArticleContent, extract_article, is_cloudflare_challenge
+from .extract import (
+    ArticleContent,
+    extract_article,
+    is_cloudflare_challenge,
+    looks_like_paywall_excerpt,
+)
 from .feed import FeedItem, parse_feed
 from .fetch import FetchError, Fetcher
 from .issue import CurrentIssue, resolve_current_issue
@@ -329,7 +334,11 @@ def ingest_article_html(
         if is_cloudflare_challenge(html):
             return fail("cloudflare_challenge", "The article response was a Cloudflare challenge page.")
         content = extract_article(html)
-        if content is None or len(content.text) < minimum_text_length_for_url(url):
+        if (
+        content is None
+        or len(content.text) < minimum_text_length_for_url(url)
+        or looks_like_paywall_excerpt(content.text)
+    ):
             return fail(
                 "excerpt_or_login_required",
                 "The article page did not expose full subscriber text.",
@@ -506,7 +515,11 @@ def _fetch_article(
         )
 
     content = extract_article(response.text)
-    if content is None or len(content.text) < minimum_text_length_for_url(article.url):
+    if (
+        content is None
+        or len(content.text) < minimum_text_length_for_url(article.url)
+        or looks_like_paywall_excerpt(content.text)
+    ):
         store.mark_fetch_error(
             article,
             status="excerpt_or_login_required",
@@ -751,7 +764,11 @@ def ingest_world_in_brief_html(
     if is_cloudflare_challenge(html):
         return WorldInBriefIngestResult(False, "cloudflare_challenge", "html is a Cloudflare challenge page")
     article = extract_article(html)
-    if article is None or len(article.text) < minimum_text_length_for_url(url):
+    if (
+        article is None
+        or len(article.text) < minimum_text_length_for_url(url)
+        or looks_like_paywall_excerpt(article.text)
+    ):
         return WorldInBriefIngestResult(
             False, "excerpt_or_login_required", "only short text was found; is the Mac signed in?"
         )
